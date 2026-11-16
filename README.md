@@ -99,6 +99,7 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 - **磁碟配額（選配）**：CT 內無法對 rootfs 開 quota。需要的話，在 CT 設定的磁碟大小就是整體上限；真的要每人配額，要在主機端另外處理（例如每人一個 ZFS dataset）。建議先不做。
 - **`hidepid=2`（選配）**：LXC 的 `/proc` 由 lxcfs 與 AppArmor 管，CT 內 remount `/proc` 通常會被拒。流程不需要，不做。
 - **防火牆**：CT 內不裝 fail2ban。若有開 Proxmox 防火牆，記得讓學員網段可連 TCP 22。
+- **管理者切成學員測試**：不要用 `su lab01`，`systemctl --user` 會出現 `Failed to connect to bus: Permission denied`（`XDG_RUNTIME_DIR` 還指向 root 的 `/run/user/0`）。請用 `ssh lab01@localhost`，或在 `su - lab01` 之後執行 `export XDG_RUNTIME_DIR=/run/user/$(id -u)`。
 
 ## 驗證
 

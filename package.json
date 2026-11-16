@@ -1,0 +1,12 @@
+{
+  "name": "linux-lab-docs",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:site": "node scripts/build-site.mjs",
+    "preview:site": "node scripts/build-site.mjs && node scripts/preview-site.mjs"
+  }
+}

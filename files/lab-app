@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+# lab-app：Linux Server 社課的示範 daemon。
+#
+# 讀 ~/.config/app/config.json，把結果追加到 ~/.log/app.log。
+#   enable == true  → INFO: started，之後每 5 秒 INFO: heartbeat，持續執行
+#   其他情況         → 寫一行明確的 ERROR，結束碼 78（EX_CONFIG）
+#
+# 安裝位置：/opt/lab/lab-app（root:root 755），由 systemd user service 以學員身分執行。
+# 只用 Python 標準函式庫。
+
+import json
+import os
+import re
+import signal
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+EX_CONFIG = 78
+HEARTBEAT_SECONDS = 5
+
+HOME = Path(os.environ.get("HOME") or Path.home())
+CONFIG = HOME / ".config" / "app" / "config.json"
+LOG = HOME / ".log" / "app.log"
+
+# 學員常見的錯誤寫法：True、TRUE、yes、on 這類「沒加引號的字」。
+# 嚴格來說這是 JSON 語法錯誤，但對學員來說更有用的提示是「要寫小寫 true」。
+BAREWORD = re.compile(r'"enable"\s*:\s*([A-Za-z_][A-Za-z0-9_]*)')
+
+
+def log(level, message):
+    line = f"{datetime.now():%Y-%m-%d %H:%M:%S} {level}: {message}\n"
+    try:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError as e:
+        print(f"lab-app: cannot write {LOG}: {e}", file=sys.stderr, flush=True)
+    # 同時輸出到 stdout/stderr，讓 systemctl --user status 也看得到
+    stream = sys.stderr if level == "ERROR" else sys.stdout
+    print(f"{level}: {message}", file=stream, flush=True)
+
+
+def fail(message):
+    log("ERROR", message)
+    sys.exit(EX_CONFIG)
+
+
+def load_enable():
+    try:
+        text = CONFIG.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        fail("app/config.json not found")
+    except IsADirectoryError:
+        fail("app/config.json not found")
+    except PermissionError:
+        fail("cannot read app/config.json (permission denied)")
+    except UnicodeDecodeError:
+        fail("invalid JSON in app/config.json (line 1)")
+    except OSError as e:
+        fail(f"cannot read app/config.json ({e.strerror})")
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        m = BAREWORD.search(text)
+        if m and m.group(1) not in ("true", "false", "null"):
+            fail('"enable" must be true or false (boolean)')
+        line = e.lineno
+        # 錯在檔尾（例如少了右括號）時，指向最後一行有內容的地方，而不是檔尾的空行
+        content = text.rstrip()
+        if e.pos >= len(content):
+            line = content.count("\n") + 1
+        fail(f"invalid JSON in app/config.json (line {line})")
+
+    if not isinstance(data, dict) or not isinstance(data.get("enable"), bool):
+        fail('"enable" must be true or false (boolean)')
+    return data["enable"]
+
+
+def on_signal(signum, _frame):
+    log("INFO", "stopped")
+    sys.exit(0)
+
+
+def main():
+    if not load_enable():
+        fail('app is disabled, set "enable" to true in app/config.json')
+
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+    signal.signal(signal.SIGHUP, on_signal)
+
+    log("INFO", "started")
+    while True:
+        time.sleep(HEARTBEAT_SECONDS)
+        log("INFO", "heartbeat")
+
+
+if __name__ == "__main__":
+    main()

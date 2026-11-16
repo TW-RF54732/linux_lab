@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "docs",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/preview-site.mjs", "4173"],
+      "port": 4173
+    }
+  ]
+}

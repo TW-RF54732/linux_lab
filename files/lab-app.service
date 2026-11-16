@@ -1,0 +1,13 @@
+[Unit]
+Description=Lab demo app (Linux Server 社課)
+# 只對學員（labusers 群組）啟動；管理者與 root 的 user manager 會略過
+ConditionGroup=labusers
+
+[Service]
+Type=simple
+ExecStart=/opt/lab/lab-app
+# 不自動重啟：失敗狀態才看得到，也不會刷出大量 log
+Restart=no
+
+[Install]
+WantedBy=default.target

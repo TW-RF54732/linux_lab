@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+<meta name="color-scheme" content="dark">
+{{canonical}}
+<link rel="icon" href="{{favicon}}" type="image/svg+xml">
+<link rel="stylesheet" href="{{styles}}">
+<script src="{{script}}" defer></script>
+</head>
+<body class="docs-page">
+<a class="skip-link" href="#content">跳到內容</a>
+<header class="header container">
+<nav class="header-path" aria-label="麵包屑"><a class="wordmark" href="{{home}}">{{siteName}}</a><span aria-hidden="true">/</span>{{headerPath}}</nav>
+{{repository}}
+</header>
+<main class="container">
+<div class="guide-intro"><h1>{{heading}}</h1><p>{{lede}}</p></div>
+<div class="docs-layout">
+<aside class="docs-sidebar"><nav class="desktop-index" aria-label="文件目錄">{{sidebar}}</nav><details class="mobile-index"><summary>文件目錄</summary><nav aria-label="文件目錄">{{sidebar}}</nav></details></aside>
+<article id="content" class="guide-content" tabindex="-1" data-copied-label="已複製" data-copy-failed="複製失敗，請手動選取">
+{{toc}}
+{{body}}
+<nav class="docs-pagination" aria-label="前後頁導覽">{{pagination}}</nav>
+</article>
+</div>
+</main>
+<footer class="footer container"><span>{{footer}}</span><a href="{{home}}">文件首頁</a></footer>
+</body>
+</html>

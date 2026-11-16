@@ -1,0 +1,356 @@
+#!/usr/bin/env python3
+# lab-seed：產生學員家目錄的預置檔案（~/.log、~/.config）。
+#
+# 內容由固定種子決定，同一個 --seed 每次產生的內容都相同；
+# 時間戳以 --now（預設為現在）為終點往回推，所以開課當天重跑時，
+# app.log 最後一筆 ERROR 會是「剛剛才發生」的樣子。
+#
+# 用法（root）：
+#   lab-seed lab01                       # 產生 /home/lab01 的全部預置檔
+#   lab-seed lab01 --only-app-log        # 只重寫 ~/.log/app.log
+#   lab-seed --home /tmp/x --now "2026-11-21 14:00:00"   # 測試用，不 chown
+#
+# 只用 Python 標準函式庫。
+
+import argparse
+import json
+import os
+import pwd
+import random
+import socket
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+DEFAULT_SEED = 20261116
+FINAL_ERROR = 'ERROR: app is disabled, set "enable" to true in app/config.json'
+TS = "%Y-%m-%d %H:%M:%S"
+
+
+# ---------------------------------------------------------------- 工具
+
+def spread(rng, start, end, count):
+    """在 [start, end] 之間產生 count 個排序過的隨機時間點。"""
+    span = (end - start).total_seconds()
+    return sorted(start + timedelta(seconds=rng.uniform(0, span)) for _ in range(count))
+
+
+def write(path, text, mtime, owner):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    os.chmod(path, 0o644)
+    ts = mtime.timestamp()
+    os.utime(path, (ts, ts))
+    if owner:
+        os.chown(path, owner.pw_uid, owner.pw_gid)
+
+
+def mkdir(path, owner, mode=0o755):
+    path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, mode)
+    if owner:
+        os.chown(path, owner.pw_uid, owner.pw_gid)
+
+
+# ---------------------------------------------------------------- app.log
+
+INFO_MSGS = [
+    "request handled in {ms}ms (GET /api/items)",
+    "request handled in {ms}ms (GET /api/items/{n})",
+    "request handled in {ms}ms (POST /api/orders)",
+    "request handled in {ms}ms (GET /api/users/me)",
+    "health check ok",
+    "health check ok",
+    "cache hit ratio {ratio}",
+    "worker {w} ready",
+    "scheduled job sync-inventory finished ({n} items)",
+    "scheduled job cleanup-sessions finished ({n} sessions removed)",
+    "session created for user u{n}",
+    "session expired for user u{n}",
+    "metrics flushed ({n} points)",
+    "db pool: {w} active, {n} idle",
+]
+
+WARN_MSGS = [
+    "slow request {slow}ms (GET /api/report)",
+    "slow request {slow}ms (POST /api/orders)",
+    "cache miss rate above 20%",
+    "disk usage at {disk}% on /var/lib/app",
+    "deprecated option 'legacy_mode' found in config, ignoring",
+    "rate limit reached for client 10.0.{w}.{n}",
+    "retrying upstream inventory-api (attempt 2/5)",
+]
+
+# 已解決的舊錯誤：每一筆後面接著恢復訊息
+INCIDENTS = [
+    ("ERROR: database connection lost (timeout after 30s)",
+     ["WARN: retrying db connection (attempt 1/5)",
+      "WARN: retrying db connection (attempt 2/5)",
+      "INFO: database connection restored"]),
+    ("ERROR: failed to write /var/lib/app/cache/index.tmp (No space left on device)",
+     ["WARN: disk usage at 99% on /var/lib/app",
+      "INFO: cache cleanup freed 1.2 GB",
+      "INFO: cache rebuilt"]),
+    ("ERROR: upstream payment-api returned 502 Bad Gateway",
+     ["WARN: retrying upstream payment-api (attempt 2/5)",
+      "INFO: upstream payment-api recovered"]),
+    ("ERROR: worker 4 crashed (exit code 137)",
+     ["INFO: worker 4 restarted",
+      "INFO: worker 4 ready"]),
+    ("ERROR: failed to send daily report email (SMTP 451 temporary failure)",
+     ["INFO: daily report email sent (retry 1)"]),
+    ("ERROR: database connection lost (timeout after 30s)",
+     ["WARN: retrying db connection (attempt 1/5)",
+      "INFO: database connection restored"]),
+    ("ERROR: certificate verify failed for inventory-api.internal",
+     ["INFO: reloaded CA bundle",
+      "INFO: upstream inventory-api recovered"]),
+]
+
+
+def fill(rng, template):
+    return template.format(
+        ms=rng.randint(3, 240),
+        slow=rng.randint(1200, 4800),
+        n=rng.randint(1, 999),
+        w=rng.randint(1, 8),
+        ratio=f"{rng.uniform(0.80, 0.99):.2f}",
+        disk=rng.randint(78, 89),
+    )
+
+
+def gen_app_log(rng, now, final_error=True):
+    start = now - timedelta(days=3)
+    end = now - timedelta(minutes=4)
+    stamps = spread(rng, start, end, 1940)
+
+    lines = []
+    for t in stamps:
+        if rng.random() < 0.12:
+            msg = "WARN: " + fill(rng, rng.choice(WARN_MSGS))
+        else:
+            msg = "INFO: " + fill(rng, rng.choice(INFO_MSGS))
+        lines.append((t, msg))
+
+    # 把舊錯誤平均插進前 90% 的時間軸
+    for i, (err, recovery) in enumerate(INCIDENTS):
+        frac = (i + 0.5 + rng.uniform(-0.3, 0.3)) / len(INCIDENTS) * 0.9
+        t = start + (end - start) * frac
+        lines.append((t, err))
+        for msg in recovery:
+            t += timedelta(seconds=rng.randint(5, 90))
+            lines.append((t, msg))
+
+    lines.sort(key=lambda x: x[0])
+
+    # 結尾：設定被改掉 → app 重新啟動 → 讀設定失敗
+    t = end + timedelta(seconds=30)
+    tail = [
+        "INFO: received reload request",
+        "INFO: config reloaded",
+        "INFO: shutting down workers",
+        "INFO: stopped",
+        "INFO: starting lab-app",
+        "INFO: reading app/config.json",
+    ]
+    for msg in tail:
+        t += timedelta(seconds=rng.randint(1, 20))
+        lines.append((t, msg))
+    final_t = now - timedelta(seconds=rng.randint(40, 90))
+    if final_error:
+        lines.append((max(final_t, t + timedelta(seconds=1)), FINAL_ERROR))
+
+    return "".join(f"{t.strftime(TS)} {msg}\n" for t, msg in lines)
+
+
+# ---------------------------------------------------------------- 其他 log
+
+PATHS = ["/", "/index.html", "/api/items", "/api/items/{n}", "/api/orders",
+         "/api/users/me", "/static/app.js", "/static/style.css", "/favicon.ico",
+         "/login", "/logout", "/api/report"]
+AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+    "curl/8.5.0",
+    "python-requests/2.31.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0",
+]
+
+
+def gen_access_log(rng, now):
+    tz = now.astimezone().strftime("%z")
+    out = []
+    for t in spread(rng, now - timedelta(days=2), now - timedelta(minutes=13), 3200):
+        ip = f"10.{rng.randint(0, 3)}.{rng.randint(0, 20)}.{rng.randint(2, 254)}"
+        method = "POST" if rng.random() < 0.15 else "GET"
+        path = rng.choice(PATHS).format(n=rng.randint(1, 500))
+        status = rng.choices([200, 304, 301, 404, 401, 500], [80, 8, 3, 6, 2, 1])[0]
+        size = 0 if status == 304 else rng.randint(120, 48000)
+        agent = rng.choice(AGENTS)
+        out.append(f'{ip} - - [{t.strftime("%d/%b/%Y:%H:%M:%S")} {tz}] '
+                   f'"{method} {path} HTTP/1.1" {status} {size} "-" "{agent}"\n')
+    return "".join(out)
+
+
+DB_MSGS = [
+    "LOG:  checkpoint starting: time",
+    "LOG:  checkpoint complete: wrote {n} buffers ({p}%); 0 WAL file(s) added, 0 removed, 1 recycled",
+    "LOG:  automatic vacuum of table \"app.public.sessions\": index scans: 1",
+    "LOG:  automatic analyze of table \"app.public.orders\"",
+    "LOG:  connection received: host=10.0.1.{h} port={port}",
+    "LOG:  connection authorized: user=app database=app",
+    "LOG:  disconnection: session time: 0:0{m}:{s:02d}.{ms:03d} user=app database=app host=10.0.1.{h}",
+    "LOG:  duration: {dur}.{ms:03d} ms  statement: SELECT * FROM items WHERE id = {n}",
+    "WARNING:  there is already a transaction in progress",
+]
+
+
+def gen_db_log(rng, now):
+    out = []
+    for t in spread(rng, now - timedelta(days=3), now - timedelta(minutes=14), 900):
+        msg = rng.choice(DB_MSGS).format(
+            n=rng.randint(10, 900), p=rng.randint(0, 9), h=rng.randint(2, 40),
+            port=rng.randint(40000, 60000), m=rng.randint(0, 9), s=rng.randint(0, 59),
+            ms=rng.randint(0, 999), dur=rng.randint(1, 900))
+        out.append(f"{t.strftime(TS)}.{rng.randint(0, 999):03d} CST [{rng.randint(1000, 9999)}] {msg}\n")
+    return "".join(out)
+
+
+def gen_cron_log(rng, now, host):
+    out = []
+    t = (now - timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
+    while t < now - timedelta(minutes=15):
+        for minute in (0, 10, 17, 20, 30, 40, 50):
+            ts = t.replace(minute=minute, second=1)
+            pid = rng.randint(1000, 30000)
+            if minute == 17:
+                out.append(f"{ts:%b %d %H:%M:%S} {host} CRON[{pid}]: (root) CMD "
+                           f"(   cd / && run-parts --report /etc/cron.hourly)\n")
+            elif minute in (10, 20, 40, 50):
+                out.append(f"{ts:%b %d %H:%M:%S} {host} CRON[{pid}]: (app) CMD "
+                           f"(/usr/local/bin/app-healthcheck --timeout 5)\n")
+            elif minute == 0:
+                out.append(f"{ts:%b %d %H:%M:%S} {host} CRON[{pid}]: (app) CMD "
+                           f"(/usr/local/bin/app-sync --quiet)\n")
+            else:
+                out.append(f"{ts:%b %d %H:%M:%S} {host} CRON[{pid}]: (app) CMD "
+                           f"(/usr/local/bin/app-metrics >/dev/null 2>&1)\n")
+                if rng.random() < 0.3:
+                    out.append(f"{ts:%b %d %H:%M:%S} {host} CRON[{pid}]: (CRON) info "
+                               f"(No MTA installed, discarding output)\n")
+        if t.hour == 6:
+            ts = t.replace(minute=25, second=1)
+            out.append(f"{ts:%b %d %H:%M:%S} {host} CRON[{rng.randint(1000, 30000)}]: (root) CMD "
+                       f"(test -x /usr/sbin/anacron || {{ cd / && run-parts --report /etc/cron.daily; }})\n")
+        t += timedelta(hours=1)
+    return "".join(out)
+
+
+BOOT_UNITS = [
+    "Journal Service", "Load Kernel Modules", "Remount Root and Kernel File Systems",
+    "Create System Users", "Apply Kernel Variables", "Create Static Device Nodes in /dev",
+    "Network Configuration", "Network Name Resolution", "Permit User Sessions",
+    "D-Bus System Message Bus", "User Login Management", "OpenBSD Secure Shell server",
+    "Regular background program processing daemon", "System Logging Service",
+    "Daily apt download activities", "Daily Cleanup of Temporary Directories",
+    "Record System Boot/Shutdown in UTMP", "Update UTMP about System Runlevel Changes",
+    "Set console font and keymap", "Create Volatile Files and Directories",
+]
+
+
+def gen_boot_log(rng, now):
+    out = []
+    for boot in range(3):
+        stamp = now - timedelta(days=3 - boot, hours=rng.randint(0, 5))
+        out.append(f"------------ {stamp:%a %b %d %H:%M:%S %Y} ------------\n")
+        for _ in range(rng.randint(90, 110)):
+            unit = rng.choice(BOOT_UNITS)
+            kind = rng.choices(["Starting", "Started", "Reached", "Finished"], [4, 5, 1, 2])[0]
+            if kind == "Starting":
+                out.append(f"         Starting {unit}...\n")
+            elif kind == "Reached":
+                out.append(f"[  OK  ] Reached target {rng.choice(['Basic System', 'Network', 'Multi-User System', 'Timers', 'Sockets'])}.\n")
+            else:
+                out.append(f"[  OK  ] {kind} {unit}.\n")
+    return "".join(out)
+
+
+# ---------------------------------------------------------------- ~/.config
+
+def config_files():
+    j = lambda d: json.dumps(d, indent=2, ensure_ascii=False) + "\n"
+    return {
+        "app/config.json": '{"enable": false}\n',
+        "backup-agent/config.json": j({
+            "enable": True, "schedule": "0 3 * * *",
+            "target": "/srv/backup", "keep_days": 14}),
+        "monitor/config.json": j({
+            "enable": True, "interval_seconds": 30,
+            "checks": ["disk", "memory", "http"], "alert_email": "ops@example.com"}),
+        "chat-bot/config.json": j({
+            "enable": False, "channel": "#general", "greeting": "hello!"}),
+        "notes/settings.ini": "[general]\nsort = modified\nfont_size = 14\n\n[sync]\nenabled = no\n",
+        "theme/colors.conf": "background=#1e1e2e\nforeground=#cdd6f4\naccent=#89b4fa\n",
+        "weather-widget/widget.toml": 'city = "Taipei"\nunits = "metric"\nrefresh_minutes = 30\n',
+        "editor-sync/state.yml": "last_sync: never\ndevices: []\n",
+    }
+
+
+# ---------------------------------------------------------------- main
+
+def main():
+    ap = argparse.ArgumentParser(description="產生 lab 學員的預置檔案")
+    ap.add_argument("user", nargs="?", help="學員帳號；以 root 執行時會 chown 給此帳號")
+    ap.add_argument("--home", help="家目錄（預設為帳號的家目錄）")
+    ap.add_argument("--now", help='時間軸終點，格式 "YYYY-MM-DD HH:MM:SS"，預設為現在')
+    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    ap.add_argument("--only-app-log", action="store_true", help="只重寫 ~/.log/app.log")
+    ap.add_argument("--no-final-error", action="store_true",
+                    help="app.log 不寫最後那筆 ERROR，改由接著啟動的 lab-app 自己寫（setup.sh 用）")
+    args = ap.parse_args()
+
+    owner = None
+    if args.user:
+        try:
+            owner = pwd.getpwnam(args.user)
+        except KeyError:
+            sys.exit(f"lab-seed: no such user: {args.user}")
+    if os.geteuid() != 0:
+        owner = None  # 非 root 無法 chown，測試時用
+    home = Path(args.home or (owner.pw_dir if owner else ""))
+    if not args.home and not owner:
+        sys.exit("lab-seed: need a user (as root) or --home")
+
+    now = datetime.strptime(args.now, TS) if args.now else datetime.now().replace(microsecond=0)
+    host = socket.gethostname().split(".")[0]
+
+    log_dir = home / ".log"
+    mkdir(log_dir, owner)
+
+    # 每個檔案各自用衍生種子，這樣只重寫 app.log 時內容也一致
+    def rng(name):
+        return random.Random(f"{args.seed}:{name}")
+
+    write(log_dir / "app.log", gen_app_log(rng("app"), now, not args.no_final_error), now, owner)
+    if args.only_app_log:
+        return
+
+    write(log_dir / "access.log", gen_access_log(rng("access"), now), now - timedelta(minutes=13), owner)
+    write(log_dir / "db.log", gen_db_log(rng("db"), now), now - timedelta(minutes=14), owner)
+    write(log_dir / "cron.log", gen_cron_log(rng("cron"), now, host), now - timedelta(minutes=15), owner)
+    write(log_dir / "boot.log", gen_boot_log(rng("boot"), now), now - timedelta(days=1, hours=2), owner)
+
+    cfg = home / ".config"
+    mkdir(cfg, owner)
+    r = rng("mtime")
+    for rel, text in config_files().items():
+        path = cfg / rel
+        mkdir(path.parent, owner)
+        mtime = now - timedelta(days=r.randint(3, 40), minutes=r.randint(0, 1440))
+        if rel == "app/config.json":
+            mtime = now - timedelta(minutes=14)
+        write(path, text, mtime, owner)
+
+
+if __name__ == "__main__":
+    main()

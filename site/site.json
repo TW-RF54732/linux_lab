@@ -1,0 +1,21 @@
+{
+  "title": "Linux Lab 文件",
+  "footer": "Linux Server 社課 · Lab 文件",
+  "base": "/",
+  "origin": "",
+  "repository": "",
+  "nav": [
+    { "title": "開始", "pages": ["index", "guide/reading-docs", "guide/lab-tasks"] },
+    { "title": "Lab 環境", "pages": ["environment/index", "environment/home", "environment/lab-app", "environment/systemd-user", "environment/sshd"] },
+    { "title": "指令參考", "pages": ["commands/index"] },
+    { "title": "登入與身分", "pages": ["commands/ssh", "commands/whoami", "commands/hostname", "commands/id", "commands/exit"] },
+    { "title": "瀏覽", "pages": ["commands/pwd", "commands/ls", "commands/cd", "commands/find"] },
+    { "title": "讀檔", "pages": ["commands/cat", "commands/less", "commands/tail", "commands/wc"] },
+    { "title": "搜尋與管線", "pages": ["commands/grep", "commands/redirection"] },
+    { "title": "檔案管理", "pages": ["commands/touch", "commands/mkdir", "commands/cp", "commands/mv", "commands/rm"] },
+    { "title": "編輯", "pages": ["commands/nano"] },
+    { "title": "傳輸與金鑰", "pages": ["commands/ssh-keygen", "commands/scp"] },
+    { "title": "權限", "pages": ["commands/permissions", "commands/chmod"] },
+    { "title": "程序與服務", "pages": ["commands/ps", "commands/kill", "commands/sleep", "commands/jobs", "commands/systemctl"] }
+  ]
+}

@@ -203,6 +203,10 @@ check "evil-killer.service 為 root 644" \
     bash -c "[ \"\$(stat -c '%U %a' /etc/systemd/user/evil-killer.service)\" = 'root 644' ]"
 check "evil-killer 沒有 global enable" not test -e /etc/systemd/user/default.target.wants/evil-killer.service
 check "/usr/local/bin/lab 為 root 755" bash -c "[ \"\$(stat -c '%U %a' /usr/local/bin/lab)\" = 'root 755' ]"
+check "lab-progress.service 執行中（學員端進度快取）" systemctl is-active --quiet lab-progress.service
+wait_for 8 test -f "/var/lib/lab/progress/$U.json"
+check "進度快取 /var/lib/lab/progress/$U.json 為 root:$U 640" \
+    bash -c "[ \"\$(stat -c '%U:%G %a' /var/lib/lab/progress/$U.json)\" = 'root:$U 640' ]"
 check "雜湊檔 /var/lib/lab/users/$U.json 為 root:$U 640" \
     bash -c "[ \"\$(stat -c '%U:%G %a' /var/lib/lab/users/$U.json)\" = 'root:$U 640' ]"
 check "答案檔 /var/lib/lab/answers/$U.json 為 root 600" \
@@ -487,6 +491,13 @@ if [ "$PROGRESS" -eq 1 ]; then
         if [ "$SFTP_LOG" -eq 1 ]; then
             [ "$(lab_json lesson report)" = ok ] && pass "lab --all：第 3 段 ✓（偵測到下載）" \
                 || fail "lab --all：第 3 段是 $(lab_json lesson report)（journal 裡沒有 sftp 的 open 紀錄？）"
+            # 學員端讀不到 journal，靠 lab-progress.service 寫的快取（每 5 秒更新）
+            if wait_for 12 bash -c "runuser -u '$U' -- env HOME='$HOME_' lab | grep -q '✓ 3 錯誤報告'"; then
+                pass "學員端 lab：第 3 段 ✓"
+            else
+                fail "學員端 lab：第 3 段不是 ✓（lab-progress.service 有在跑嗎？）"
+            fi
+            as_user lab | grep -q '✓ 2 金鑰登入' && pass "學員端 lab：第 2 段 ✓" || fail "學員端 lab：第 2 段不是 ✓"
         else
             echo "  NOTE sftp 下載偵測停用（見 SSH 段），略過第 3 段 ✓ 的檢查"
         fi

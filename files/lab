@@ -12,6 +12,7 @@
 #   lab --all [--json]       計分板：教學檢查點 + challange 進度（印一次）
 #   lab --watch [秒數]       計分板每 N 秒（預設 5）自動更新，投影用
 #   lab --reset 帳號…        重置學員的 challange（新的 flag/bonus），evil-killer 原本在跑就重新啟動
+#   lab --refresh [--loop N] 只更新學員端讀的進度快取（/var/lib/lab/progress），lab-progress.service 常駐執行
 #
 # 安裝位置：/usr/local/bin/lab（root:root 755）。只用 Python 標準函式庫。
 # 投影計分板用 lab --watch，不要用 watch(1)：CT 的 locale 不是 UTF-8 時，
@@ -40,6 +41,7 @@ STATE = Path("/var/lib/lab")
 USERS_DIR = STATE / "users"       # 加鹽雜湊，學員可讀自己的
 ANSWERS_DIR = STATE / "answers"   # 明文答案，root 專用
 LESSON_DIR = STATE / "lesson"     # 每位學員教學關卡的基準時間（setup 初始化時寫入）
+PROGRESS_DIR = STATE / "progress" # journal 整理結果的快取，root:<學員> 640，學員端 lab 讀
 BUILDER = "/opt/lab/admin/lab-challange"
 SERVICE = "evil-killer.service"
 PORT_BASE = 8100
@@ -267,6 +269,44 @@ def check_service(home, running):
     return NONE, ""
 
 
+def journal_flags(journal, user, base):
+    ev = journal.get(user, {})
+    return {k: any(t >= base for t in ev.get(k, [])) for k in ("login", "pubkey", "download")}
+
+
+def write_progress(pws, journal):
+    """把每位學員的 journal 旗標寫成 root:<學員> 640 的快取，學員端 lab 讀這個。"""
+    if journal is None:
+        return
+    PROGRESS_DIR.mkdir(mode=0o755, exist_ok=True)
+    now = time.time()
+    for pw in pws:
+        base = lesson_baseline(pw.pw_name)
+        data = {"baseline": base, "updated": now, **journal_flags(journal, pw.pw_name, base)}
+        path = PROGRESS_DIR / f"{pw.pw_name}.json"
+        tmp = path.with_suffix(".tmp")
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.chown(tmp, 0, pw.pw_gid)
+            os.chmod(tmp, 0o640)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+
+
+def read_progress(user, base):
+    try:
+        d = json.loads(read_text(PROGRESS_DIR / f"{user}.json") or "")
+    except ValueError:
+        return None
+    # 基準時間變了（setup --reseed）就是舊的快取，不採用
+    if not isinstance(d, dict) or d.get("baseline") != base:
+        return None
+    return {k: bool(d.get(k)) for k in ("login", "pubkey", "download")}
+
+
 def lesson_status(pw, procs, journal):
     """journal 為 None 表示學員端（或 journal 讀不到）。"""
     user, home = pw.pw_name, Path(pw.pw_dir)
@@ -275,29 +315,29 @@ def lesson_status(pw, procs, journal):
     base = lesson_baseline(user)
     res = {}
     is_root = os.geteuid() == 0
+    # journal 整理出的三個旗標：root 直接算；學員讀不到 journal，改讀 lab-progress 寫的快取
+    jf = journal_flags(journal, user, base) if is_root and journal is not None else (
+        None if is_root else read_progress(user, base))
 
     if not is_root:
         res["login"] = (OK, "")
-    elif journal is None:
+    elif jf is None:
         res["login"] = (OK, "") if online else (UNK, "journal 讀不到")
     else:
-        ev = journal.get(user, {})
-        res["login"] = (OK, "") if online or any(t >= base for t in ev.get("login", [])) else (NONE, "")
+        res["login"] = (OK, "") if online or jf["login"] else (NONE, "")
 
     key = check_authorized_keys(home)
-    if is_root and journal is not None:
-        if any(t >= base for t in journal.get(user, {}).get("pubkey", [])):
-            key = (OK, "")
-    elif not is_root:
+    if jf and jf["pubkey"]:
+        key = (OK, "")
+    if not is_root:
         info = read_text(os.environ.get("SSH_USER_AUTH", ""), 4096) if os.environ.get("SSH_USER_AUTH") else None
         if info and re.search(r"^publickey ", info, re.M):
             key = (OK, "這次是用金鑰登入的")
     res["key"] = key
 
     rpt = check_report(home)
-    if is_root and journal is not None:
-        if any(t >= base for t in journal.get(user, {}).get("download", [])):
-            rpt = (OK, "")
+    if jf and jf["download"]:
+        rpt = (OK, "已經拉回筆電")
     res["report"] = rpt
 
     res["service"] = check_service(home, "lab-app" in comms)
@@ -560,11 +600,35 @@ def collect_all():
     procs = proc_table()
     since = min((lesson_baseline(p.pw_name) for p in pws), default=time.time())
     journal = journal_events(since)
+    write_progress(pws, journal)
     rows = []
     for pw in pws:
         lesson, online = lesson_status(pw, procs, journal)
         rows.append((pw, online, lesson, challange_status(pw, procs)))
     return rows, journal is not None
+
+
+def cmd_refresh(args):
+    """lab --refresh [--loop 秒數]：只更新學員端用的進度快取（lab-progress.service 用）。"""
+    require_root()
+    loop = None
+    if args[:1] == ["--loop"]:
+        try:
+            loop = max(1.0, float(args[1])) if len(args) > 1 else 5.0
+        except ValueError:
+            sys.exit("用法：lab --refresh [--loop 秒數]")
+    while True:
+        try:
+            pws = students()
+            since = min((lesson_baseline(p.pw_name) for p in pws), default=time.time())
+            write_progress(pws, journal_events(since))
+        except Exception as e:  # 常駐時不要因為單次錯誤就整個掛掉
+            print(f"lab --refresh：{e}", file=sys.stderr, flush=True)
+            if loop is None:
+                raise
+        if loop is None:
+            return
+        time.sleep(loop)
 
 
 def cmd_all(as_json):
@@ -689,6 +753,8 @@ def main():
         cmd_start_stop(False, a[1:])
     elif a[0] == "--all":
         cmd_all("--json" in a[1:])
+    elif a[0] == "--refresh":
+        cmd_refresh(a[1:])
     elif a[0] == "--watch":
         cmd_watch(a[1:])
     elif a[0] == "--reset":

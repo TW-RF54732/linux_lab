@@ -86,6 +86,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 
    已有預置檔的帳號會略過；加 `--reseed` 會全部重新產生。
 8. challange：安裝 `evil-killer`、`lab`、`lab-challange`，產生 `/lab/key.txt`（已存在就只檢查格式）；
+   寫入並啟動 `/etc/systemd/system/lab-progress.service`（學員端進度快取）；
    每位學員產生 `~/.challange/README.txt`、`~/.challange/decoder.sh`（444）與答案。evil-killer 先停著。
    已產生過的會略過；`--reseed` 會停掉 evil-killer 並全部重產（新的 flag 與 bonus）。
 
@@ -178,7 +179,7 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 | flag / bonus | `~/.lab/flag`、`~/.lab/bonus` 和答案相同 |
 | evil | evil-killer 正在跑 |
 
-學員端 `lab` 顯示同樣的教學檢查點（讀不到 journal，所以金鑰改看 `$SSH_USER_AUTH`、報告只看檔案）與 challange 狀態。
+學員端 `lab` 顯示同樣的教學檢查點與 challange 狀態。學員讀不到 sshd 的 journal，所以由 root 常駐的 `lab-progress.service`（`lab --refresh --loop 5`）每 5 秒把每人的登入／金鑰登入／下載紀錄寫成 `/var/lib/lab/progress/labNN.json`（`root:labNN` 640），學員端讀這份快取；`setup.sh --reseed` 換了基準時間後，舊快取會被忽略。
 
 ## 開課當天
 

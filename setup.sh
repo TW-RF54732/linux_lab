@@ -129,8 +129,31 @@ install -m 700 -o root -g root "$HERE/files/lab-challange" /opt/lab/admin/lab-ch
 install -m 755 -o root -g root "$HERE/files/lab" /usr/local/bin/lab
 install -d -m 755 -o root -g root /var/lib/lab /var/lib/lab/users "$LESSON_DIR"
 install -d -m 700 -o root -g root /var/lib/lab/answers
+install -d -m 755 -o root -g root /var/lib/lab/progress
 /opt/lab/admin/lab-challange key || die "/lab/key.txt 產生或檢查失敗"
 ok "/opt/lab/evil-killer、/etc/systemd/user/evil-killer.service、/usr/local/bin/lab、/lab/key.txt"
+
+# 學員讀不到 sshd 的 journal：由 root 常駐把每人的登入／金鑰登入／下載紀錄整理成
+# /var/lib/lab/progress/labNN.json（root:labNN 640），學員端 lab 讀這份快取。
+cat > /etc/systemd/system/lab-progress.service <<'EOF'
+# Linux Server 社課 lab（由 setup.sh 產生）
+[Unit]
+Description=lab 進度快取（journal 的登入與下載紀錄 → 學員端 lab）
+After=systemd-journald.service
+
+[Service]
+ExecStart=/usr/local/bin/lab --refresh --loop 5
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable lab-progress.service >/dev/null 2>&1
+systemctl restart lab-progress.service   # restart：讓更新後的 lab 生效
+systemctl is-active --quiet lab-progress.service || die "lab-progress.service 沒有起來：systemctl status lab-progress"
+ok "lab-progress.service（每 5 秒更新學員端的進度快取）"
 
 # ------------------------------------------------------------------ 資源限制
 say "資源限制（每位使用者）"

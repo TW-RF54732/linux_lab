@@ -219,7 +219,7 @@ check "教學檢查點基準時間 /var/lib/lab/lesson/$U 存在" test -s "/var/
 
 # ------------------------------------------------------------------ SSH
 section "SSH"
-eff=$(sshd -T 2>/dev/null)
+eff=$(sshd -T 2>/dev/null | sed 's/^permitrootlogin without-password$/permitrootlogin prohibit-password/')  # 舊版 OpenSSH 的別名
 ROOT_LOGIN_EXPECT=$([ "${LAB_ROOT_SSH:-0}" = 1 ] && echo prohibit-password || echo no)
 for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin $ROOT_LOGIN_EXPECT" "usepam yes" \
           "exposeauthinfo yes"; do

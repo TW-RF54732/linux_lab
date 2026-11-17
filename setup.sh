@@ -217,7 +217,7 @@ if ! sshd -t 2>/dev/null; then
     sshd -t || { rm -f "$SSHD_DROPIN"; die "sshd 設定檢查失敗，已移除 $SSHD_DROPIN"; }
     warn "sshd 不接受 drop-in 裡的 Subsystem，第 3 段「已下載 error.txt」偵測停用（計分板只會到 △）"
 fi
-eff=$(sshd -T 2>/dev/null)
+eff=$(sshd -T 2>/dev/null | sed 's/^permitrootlogin without-password$/permitrootlogin prohibit-password/')  # 舊版 OpenSSH 的別名
 for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin $ROOT_LOGIN" \
           "usepam yes" "maxstartups $LAB_MAX_STARTUPS" "exposeauthinfo yes"; do
     grep -qx "$kv" <<<"$eff" && ok "$kv" || die "sshd 有效設定不是「$kv」，可能被其他設定檔蓋掉：$(grep "^${kv%% *} " <<<"$eff")"

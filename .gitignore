@@ -1,3 +1,5 @@
 dist/
 node_modules/
 .devcontainer
+# 本機部署設定（從 lab.conf.example 複製）
+lab.conf

@@ -10,7 +10,11 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lab.conf
+if [[ ! -f "$HERE/lab.conf" ]]; then
+    echo "找不到 $HERE/lab.conf；請先執行：cp lab.conf.example lab.conf，並依需求修改" >&2
+    exit 1
+fi
+# shellcheck source=lab.conf.example
 source "$HERE/lab.conf"
 
 RESEED=0
@@ -324,6 +328,6 @@ cat <<EOF
     密碼名單：$LAB_ROSTER
     驗證：    $HERE/verify.sh
     手動測試：ssh $(student_name 1)@<CT 的 IP>
-    計分板：  sudo watch -c -n 5 env LAB_COLOR=1 lab --all
+    計分板：  sudo lab --watch（自動更新，Ctrl+C 離開）
     闖關開始：sudo lab --start    下課：sudo lab --stop
 EOF

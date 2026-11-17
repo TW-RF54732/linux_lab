@@ -22,6 +22,7 @@ DISK_GB=${DISK_GB:-10}
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 command -v pct >/dev/null || { echo "請在 Proxmox 主機上執行" >&2; exit 1; }
+[ -f "$HERE/lab.conf" ] || { echo "找不到 $HERE/lab.conf；請先執行：cp lab.conf.example lab.conf，並依需求修改" >&2; exit 1; }
 
 if ! pct status "$CTID" >/dev/null 2>&1; then
     echo "==> 找 Ubuntu 24.04 template"

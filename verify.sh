@@ -15,7 +15,11 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lab.conf
+if [[ ! -f "$HERE/lab.conf" ]]; then
+    echo "找不到 $HERE/lab.conf；請先執行：cp lab.conf.example lab.conf，並依需求修改" >&2
+    exit 1
+fi
+# shellcheck source=lab.conf.example
 source "$HERE/lab.conf"
 
 WIDTH=$(( ${#LAB_COUNT} < 2 ? 2 : ${#LAB_COUNT} ))

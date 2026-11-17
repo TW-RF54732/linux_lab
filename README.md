@@ -10,7 +10,7 @@
 
 | 檔案 | 用途 | 部署位置 |
 | --- | --- | --- |
-| `lab.conf` | 人數 N、帳號前綴、管理者、時區、種子、資源上限 | — |
+| `lab.conf.example` → `lab.conf`（不進 git） | 人數 N、帳號前綴、管理者、時區、種子、資源上限 | — |
 | `setup.sh` | 在 CT 內以 root 部署整套環境，可重複執行 | — |
 | `verify.sh` | 在 CT 內跑開課前驗證清單中能自動化的部分 | — |
 | `proxmox/create-ct.sh` | 在 Proxmox 主機建 CT、推檔案、執行 `setup.sh` | — |
@@ -53,7 +53,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
    pct set <CTID> --features nesting=1
    ```
 
-2. 把目錄放進 CT（例如 `/root/linux_lab`），先改 `lab.conf`，再以 root 執行：
+2. 把目錄放進 CT（例如 `/root/linux_lab`），先 `cp lab.conf.example lab.conf` 並修改 `lab.conf`，再以 root 執行：
 
    ```bash
    bash /root/linux_lab/setup.sh
@@ -104,6 +104,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 | 計分板比對 | 讀 `~/.lab` 重新比對雜湊 | 和 root 專用的明文答案比對 | 每 5 秒刷新 30 人，不必每次算 pbkdf2 |
 | 重置單一學員 | 手動步驟 | `sudo lab --reset labNN` | 一個指令做完：停 evil-killer、重產 decoder 與答案、原本在跑就重新啟動 |
 | `lab hint` | 逐步提示 | 不加 N 時依目前進度自動挑一則 | 學員不用自己判斷該看第幾則 |
+| 投影計分板 | `sudo watch -c -n 5 env LAB_COLOR=1 lab --all` | `sudo lab --watch` | `watch` 在非 UTF-8 locale 下會吃掉所有中文字 |
 | `lab` 指令 | 只有 challange | 學員端與計分板都加上教學第 1、2、3、5 段的檢查點 | 講師在 root 一眼看出誰落後 |
 | sshd | — | 加 `ExposeAuthInfo yes`、`Subsystem sftp internal-sftp -l INFO` | 學員端判斷這次是否用金鑰登入；計分板從 sftp 紀錄判斷 error.txt 有沒有被拉回筆電。舊版 OpenSSH 不接受重複的 `Subsystem` 時 setup 會自動拿掉這行 |
 | evil-killer 排除 | `~/.lab/`、`~/.bash_history` | 只排除家目錄頂層這兩個路徑 | 避免學員把 flag 藏在任意名為 `.lab` 的子目錄 |
@@ -158,11 +159,11 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 | --- | --- |
 | 建置 | `setup.sh`（`--reseed` 會全部重產） |
 | 闖關開始 | `sudo lab --start` |
-| 上課中 | `sudo watch -c -n 5 env LAB_COLOR=1 lab --all` 投影計分板 |
+| 上課中 | `sudo lab --watch` 投影計分板（每 5 秒更新；`lab --watch 3` 改間隔） |
 | 下課 | `sudo lab --stop` |
 | 重置單一學員 | `sudo lab --reset labNN` |
 
-`--start`、`--stop` 後面可以接帳號，只對那幾位操作。`lab --all --json` 輸出機器可讀的狀態（`verify.sh` 用）。
+`--start`、`--stop` 後面可以接帳號，只對那幾位操作。不要用 `watch lab --all` 投影：Ubuntu CT 預設 locale 不是 UTF-8，`watch` 走 ncurses 會把中文與 ✓△ 全部吃掉，`lab --watch` 自己重畫畫面，不受影響。`lab --all --json` 輸出機器可讀的狀態（`verify.sh` 用）。
 
 計分板每人一列，`✓` 完成、`△` 做一半、`✗` 有問題、`·` 還沒做，最後一列是每欄完成人數，「備註」顯示第一個沒完成的教學項目卡在哪：
 

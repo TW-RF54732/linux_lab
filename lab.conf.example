@@ -1,4 +1,6 @@
-# Linux Server 社課 lab 設定（setup.sh 與 verify.sh 會讀這個檔）
+# Linux Server 社課 lab 設定範本。複製成 lab.conf 後修改（lab.conf 不進 git）：
+#   cp lab.conf.example lab.conf
+# setup.sh 與 verify.sh 會讀 lab.conf。
 
 # 學員人數 N，帳號為 lab01 … labNN
 LAB_COUNT=30

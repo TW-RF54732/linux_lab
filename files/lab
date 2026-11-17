@@ -9,15 +9,19 @@
 # 講師（root）：
 #   lab --start [帳號…]      對每位學員 systemctl --user enable --now evil-killer
 #   lab --stop  [帳號…]      對每位學員 systemctl --user disable --now evil-killer
-#   lab --all [--json]       計分板：教學檢查點 + challange 進度
+#   lab --all [--json]       計分板：教學檢查點 + challange 進度（印一次）
+#   lab --watch [秒數]       計分板每 N 秒（預設 5）自動更新，投影用
 #   lab --reset 帳號…        重置學員的 challange（新的 flag/bonus），evil-killer 原本在跑就重新啟動
 #
 # 安裝位置：/usr/local/bin/lab（root:root 755）。只用 Python 標準函式庫。
-# 投影計分板：sudo watch -c -n 5 env LAB_COLOR=1 lab --all
+# 投影計分板用 lab --watch，不要用 watch(1)：CT 的 locale 不是 UTF-8 時，
+# watch 走 ncurses 會把中文與 ✓△ 全部吃掉。
 
 import grp
 import hashlib
+import contextlib
 import hmac
+import io
 import json
 import os
 import pwd
@@ -620,6 +624,33 @@ def cmd_all(as_json):
     print(paint(line(foot), "1"))
 
 
+def cmd_watch(args):
+    """自己重畫畫面，不經過 ncurses，所以不受 locale 影響。"""
+    require_root()
+    interval = 5.0
+    if args:
+        try:
+            interval = max(1.0, float(args[0]))
+        except ValueError:
+            sys.exit("用法：lab --watch [秒數]")
+    out = sys.stdout
+    try:
+        out.write("\033[?25l")  # 隱藏游標
+        while True:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cmd_all(False)
+            footer = paint(f"\n每 {interval:g} 秒更新，Ctrl+C 離開", "2")
+            out.write("\033[H\033[J" + buf.getvalue() + footer)
+            out.flush()
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        out.write("\033[?25h\n")
+        out.flush()
+
+
 # ---------------------------------------------------------------- main
 
 USAGE = """\
@@ -631,11 +662,15 @@ USAGE = """\
 講師（root）：
   lab --start [帳號…]    啟動 evil-killer（enable --now）
   lab --stop  [帳號…]    停止 evil-killer（disable --now）
-  lab --all [--json]     計分板；投影：sudo watch -c -n 5 env LAB_COLOR=1 lab --all
+  lab --all [--json]     計分板（印一次）
+  lab --watch [秒數]     計分板自動更新（預設 5 秒），投影用
   lab --reset 帳號…      重置學員的 challange"""
 
 
 def main():
+    # 終端機幾乎都是 UTF-8；locale 不是 UTF-8 時也照樣輸出中文，不要整個當掉
+    if (sys.stdout.encoding or "").lower().replace("-", "") != "utf8":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     a = sys.argv[1:]
     if not a:
         if os.geteuid() == 0:
@@ -654,6 +689,8 @@ def main():
         cmd_start_stop(False, a[1:])
     elif a[0] == "--all":
         cmd_all("--json" in a[1:])
+    elif a[0] == "--watch":
+        cmd_watch(a[1:])
     elif a[0] == "--reset":
         cmd_reset(a[1:])
     else:

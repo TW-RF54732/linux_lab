@@ -3,7 +3,7 @@
 #
 # 用法（在 CT 內以 root 執行）：
 #   ./setup.sh             # 部署；已存在的學員帳號不會被改動預置檔
-#   ./setup.sh --reseed    # 另外把所有學員的預置檔與服務狀態重新產生到初始值
+#   ./setup.sh --reseed    # 另外把所有學員的預置檔、服務狀態與 challange 重新產生到初始值
 #
 # 可以重複執行（idempotent）。設定在同目錄的 lab.conf。
 
@@ -24,7 +24,8 @@ done
 
 STUDENT_GROUP=labusers
 ADMIN_GROUP=labadmins
-PACKAGES=(openssh-server libpam-systemd dbus-user-session nano less grep findutils procps python3 sudo)
+PACKAGES=(openssh-server libpam-systemd dbus-user-session nano less grep findutils procps python3 sudo openssl)
+LESSON_DIR=/var/lib/lab/lesson
 
 say()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 ok()   { printf '    \033[32mok\033[0m  %s\n' "$*"; }
@@ -57,7 +58,8 @@ VIRT=$(systemd-detect-virt -c 2>/dev/null || true)
 ok "container: ${VIRT:-none}"
 [[ "$LAB_COUNT" =~ ^[0-9]+$ ]] && [ "$LAB_COUNT" -ge 1 ] || die "LAB_COUNT 必須是正整數"
 WIDTH=$(( ${#LAB_COUNT} < 2 ? 2 : ${#LAB_COUNT} ))
-for f in files/lab-app files/lab-seed files/lab-app.service; do
+for f in files/lab-app files/lab-seed files/lab-app.service \
+         files/evil-killer files/evil-killer.service files/lab files/lab-challange; do
     [ -f "$HERE/$f" ] || die "缺少 $f"
     if grep -q $'\r' "$HERE/$f"; then die "$f 是 CRLF 換行，請轉成 LF（例如 sed -i 's/\\r\$//' $f）"; fi
 done
@@ -116,6 +118,16 @@ systemctl --global enable lab-app.service >/dev/null 2>&1 || true
 [ -L /etc/systemd/user/default.target.wants/lab-app.service ] || die "systemctl --global enable 失敗"
 ok "/opt/lab/lab-app、/etc/systemd/user/lab-app.service（global enabled）"
 
+# challange：evil-killer 不做 --global enable，闖關開始時由講師 sudo lab --start 啟動
+install -m 755 -o root -g root "$HERE/files/evil-killer" /opt/lab/evil-killer
+install -m 644 -o root -g root "$HERE/files/evil-killer.service" /etc/systemd/user/evil-killer.service
+install -m 700 -o root -g root "$HERE/files/lab-challange" /opt/lab/admin/lab-challange
+install -m 755 -o root -g root "$HERE/files/lab" /usr/local/bin/lab
+install -d -m 755 -o root -g root /var/lib/lab /var/lib/lab/users "$LESSON_DIR"
+install -d -m 700 -o root -g root /var/lib/lab/answers
+/opt/lab/admin/lab-challange key || die "/lab/key.txt 產生或檢查失敗"
+ok "/opt/lab/evil-killer、/etc/systemd/user/evil-killer.service、/usr/local/bin/lab、/lab/key.txt"
+
 # ------------------------------------------------------------------ 資源限制
 say "資源限制（每位使用者）"
 install -d -m 755 /etc/systemd/system/user-.slice.d
@@ -133,7 +145,8 @@ say "SSH 設定"
 SSHD_DROPIN=/etc/ssh/sshd_config.d/00-lab.conf
 grep -Eq '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config \
     || die "/etc/ssh/sshd_config 沒有 Include sshd_config.d，請手動檢查"
-cat > "$SSHD_DROPIN" <<EOF
+write_sshd_dropin() {  # write_sshd_dropin <1=加 sftp 讀檔紀錄>
+    cat > "$SSHD_DROPIN" <<EOF
 # Linux Server 社課 lab（由 setup.sh 產生）
 # sshd 採「第一個出現的值」為準，這個檔排在 sshd_config.d 最前面，會蓋過後面的設定。
 UsePAM yes
@@ -143,17 +156,37 @@ PubkeyAuthentication yes
 PermitRootLogin no
 AllowGroups $STUDENT_GROUP $ADMIN_GROUP
 MaxStartups $LAB_MAX_STARTUPS
+# 學員端 lab 讀 \$SSH_USER_AUTH 判斷這次是不是用金鑰登入（第 2 段檢查點）
+ExposeAuthInfo yes
 EOF
-chmod 644 "$SSHD_DROPIN"
+    if [ "$1" -eq 1 ]; then
+        cat >> "$SSHD_DROPIN" <<'EOF'
+# 記錄 scp/sftp 讀了哪些檔，lab --all 用來判斷 error.txt 有沒有被拉回筆電（第 3 段檢查點）
+Subsystem sftp internal-sftp -l INFO
+EOF
+    fi
+    chmod 644 "$SSHD_DROPIN"
+}
 mkdir -p /run/sshd
-sshd -t || { rm -f "$SSHD_DROPIN"; die "sshd 設定檢查失敗，已移除 $SSHD_DROPIN"; }
+write_sshd_dropin 1
+if ! sshd -t 2>/dev/null; then
+    # 舊版 OpenSSH 遇到重複的 Subsystem（主設定檔已有一行）會直接報錯
+    write_sshd_dropin 0
+    sshd -t || { rm -f "$SSHD_DROPIN"; die "sshd 設定檢查失敗，已移除 $SSHD_DROPIN"; }
+    warn "sshd 不接受 drop-in 裡的 Subsystem，第 3 段「已下載 error.txt」偵測停用（計分板只會到 △）"
+fi
 eff=$(sshd -T 2>/dev/null)
 for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin no" \
-          "usepam yes" "maxstartups $LAB_MAX_STARTUPS"; do
+          "usepam yes" "maxstartups $LAB_MAX_STARTUPS" "exposeauthinfo yes"; do
     grep -qx "$kv" <<<"$eff" && ok "$kv" || die "sshd 有效設定不是「$kv」，可能被其他設定檔蓋掉：$(grep "^${kv%% *} " <<<"$eff")"
 done
 grep -qi "^allowgroups .*$STUDENT_GROUP" <<<"$eff" && ok "allowgroups $STUDENT_GROUP $ADMIN_GROUP" \
     || die "AllowGroups 沒生效"
+if grep -qix "subsystem sftp internal-sftp -l INFO" <<<"$eff"; then
+    ok "subsystem sftp internal-sftp -l INFO（記錄下載）"
+else
+    warn "sftp 沒有記錄讀檔（$(grep -i '^subsystem ' <<<"$eff")），第 3 段下載偵測停用"
+fi
 if systemctl list-unit-files ssh.socket >/dev/null 2>&1 && systemctl is-enabled --quiet ssh.socket 2>/dev/null; then
     systemctl try-restart ssh.service
     ok "ssh.socket（socket activation）"
@@ -236,6 +269,8 @@ init_user() {
         warn "$u 的 app.log 最後一筆不是 app is disabled"
         return 1
     fi
+    # 教學關卡檢查點的基準時間：lab --all 只看這之後的登入與下載紀錄
+    date +%s > "$LESSON_DIR/$u"
     return 0
 }
 
@@ -248,10 +283,29 @@ for i in $(seq 1 "$LAB_COUNT"); do
         if init_user "$u"; then ok "$u 初始化完成"; else fail=$((fail + 1)); fi
     else
         loginctl enable-linger "$u"
+        [ -f "$LESSON_DIR/$u" ] || date +%s > "$LESSON_DIR/$u"
         ok "$u 已有預置檔，略過（要重來請加 --reseed）"
     fi
 done
 [ "$fail" -eq 0 ] || die "$fail 個帳號初始化失敗，請看上面的訊息"
+
+# ------------------------------------------------------------------ challange 闖關
+# 每人一份 ~/.challange（README.txt、decoder.sh）與答案。evil-killer 先停著，sudo lab --start 才啟動。
+say "challange 闖關檔案"
+for i in $(seq 1 "$LAB_COUNT"); do
+    u=$(student_name "$i")
+    home=$(getent passwd "$u" | cut -d: -f6)
+    if [ "$RESEED" -eq 1 ] || [ ! -f "$home/.challange/decoder.sh" ] \
+       || [ ! -f "/var/lib/lab/answers/$u.json" ] || [ ! -f "/var/lib/lab/users/$u.json" ]; then
+        user_systemctl "$u" disable --now evil-killer.service >/dev/null 2>&1 || true
+        user_systemctl "$u" reset-failed evil-killer.service >/dev/null 2>&1 || true
+        /opt/lab/admin/lab-challange build --force "$u" >/dev/null || { fail=$((fail + 1)); warn "$u 的 challange 產生失敗"; continue; }
+        ok "$u 的 ~/.challange 已產生"
+    else
+        ok "$u 已有 ~/.challange，略過（要重來請加 --reseed，或 lab --reset $u）"
+    fi
+done
+[ "$fail" -eq 0 ] || die "$fail 個帳號的 challange 產生失敗，請看上面的訊息"
 
 say "完成"
 cat <<EOF
@@ -259,4 +313,6 @@ cat <<EOF
     密碼名單：$LAB_ROSTER
     驗證：    $HERE/verify.sh
     手動測試：ssh $(student_name 1)@<CT 的 IP>
+    計分板：  sudo watch -c -n 5 env LAB_COLOR=1 lab --all
+    闖關開始：sudo lab --start    下課：sudo lab --stop
 EOF

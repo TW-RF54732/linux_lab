@@ -1,0 +1,659 @@
+#!/usr/bin/python3 -I
+# lab：Linux Server 社課的進度、提示與提交指令。
+#
+# 學員：
+#   lab                      看自己的進度（教學關卡檢查點 + challange）
+#   lab hint [N]             提示（不加 N 會依目前進度挑一則）
+#   lab flag '<flag>'        提交 flag
+#   lab bonus <文字>         提交 bonus（不分大小寫）
+# 講師（root）：
+#   lab --start [帳號…]      對每位學員 systemctl --user enable --now evil-killer
+#   lab --stop  [帳號…]      對每位學員 systemctl --user disable --now evil-killer
+#   lab --all [--json]       計分板：教學檢查點 + challange 進度
+#   lab --reset 帳號…        重置學員的 challange（新的 flag/bonus），evil-killer 原本在跑就重新啟動
+#
+# 安裝位置：/usr/local/bin/lab（root:root 755）。只用 Python 標準函式庫。
+# 投影計分板：sudo watch -c -n 5 env LAB_COLOR=1 lab --all
+
+import grp
+import hashlib
+import hmac
+import json
+import os
+import pwd
+import re
+import subprocess
+import sys
+import time
+import unicodedata
+from datetime import datetime
+from pathlib import Path
+
+STUDENT_GROUP = "labusers"
+CHAL_DIRNAME = ".challange"
+KEY_PATH = Path("/lab/key.txt")
+STATE = Path("/var/lib/lab")
+USERS_DIR = STATE / "users"       # 加鹽雜湊，學員可讀自己的
+ANSWERS_DIR = STATE / "answers"   # 明文答案，root 專用
+LESSON_DIR = STATE / "lesson"     # 每位學員教學關卡的基準時間（setup 初始化時寫入）
+BUILDER = "/opt/lab/admin/lab-challange"
+SERVICE = "evil-killer.service"
+PORT_BASE = 8100
+
+# 和 files/lab-app、files/lab-seed 的 ERROR 字串一致
+SEED_ERROR = "ERROR: app is disabled"
+APP_ERRORS = [
+    ("app is disabled", "enable 還是 false"),
+    ("invalid JSON", "JSON 格式壞了"),
+    ("must be true or false", "enable 不是小寫 true"),
+    ("not found", "找不到 config.json"),
+    ("cannot read", "讀不到 config.json"),
+]
+
+OK, PART, BAD, NONE, UNK = "ok", "part", "bad", "none", "unk"
+
+# ---------------------------------------------------------------- 輸出
+
+USE_COLOR = os.environ.get("LAB_COLOR") == "1" or (
+    sys.stdout.isatty() and os.environ.get("LAB_COLOR") != "0" and "NO_COLOR" not in os.environ)
+COLORS = {OK: "32", PART: "33", BAD: "31", NONE: "2", UNK: "2"}
+SYMBOL = {OK: "✓", PART: "△", BAD: "✗", NONE: "·", UNK: "?"}
+
+
+def paint(text, code):
+    return f"\033[{code}m{text}\033[0m" if USE_COLOR and code else text
+
+
+def mark(state):
+    return paint(SYMBOL[state], COLORS[state])
+
+
+def width(s):
+    s = re.sub(r"\033\[[0-9;]*m", "", s)
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+
+
+def pad(s, w):
+    return s + " " * max(0, w - width(s))
+
+
+# ---------------------------------------------------------------- 共用工具
+
+def read_text(path, limit=None):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read(limit) if limit else f.read()
+    except OSError:
+        return None
+
+
+def first_line(path):
+    t = read_text(path, 4096)
+    return None if t is None else t.split("\n", 1)[0]
+
+
+def students():
+    try:
+        names = grp.getgrnam(STUDENT_GROUP).gr_mem
+    except KeyError:
+        return []
+    out = []
+    for n in sorted(set(names)):
+        try:
+            out.append(pwd.getpwnam(n))
+        except KeyError:
+            pass
+    return out
+
+
+def proc_table():
+    """uid → 該使用者所有程序的名稱（comm）集合。一次掃完 /proc，不必每人跑 pgrep。"""
+    table = {}
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        name = uid = None
+        try:
+            with open(f"/proc/{pid}/status", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if line.startswith("Name:"):
+                        name = line.split(None, 1)[1].strip()
+                    elif line.startswith("Uid:"):
+                        uid = int(line.split()[1])
+                        break
+        except (OSError, ValueError, IndexError):
+            continue
+        if name is not None and uid is not None:
+            table.setdefault(uid, set()).add(name)
+    return table
+
+
+def lesson_baseline(user):
+    t = read_text(LESSON_DIR / user, 64)
+    try:
+        return float(t.strip())
+    except (AttributeError, ValueError):
+        return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+
+def student_number(user):
+    m = re.search(r"(\d+)$", user)
+    return int(m.group(1)) if m else 0
+
+
+def check_hash(entry, value):
+    try:
+        salt = bytes.fromhex(entry["salt"])
+        want = bytes.fromhex(entry["sha256"])
+        it = int(entry["iter"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return hmac.compare_digest(hashlib.pbkdf2_hmac("sha256", value.encode(), salt, it), want)
+
+
+def norm_bonus(s):
+    return re.sub(r"\s+", "", s or "").upper()
+
+
+# ---------------------------------------------------------------- journal（root）
+
+JOURNAL_IDS = ["sshd", "sshd-session", "internal-sftp", "sftp-server"]
+RE_ACCEPT = re.compile(r"^Accepted (\S+) for (\S+) from ")
+RE_SFTP_USER = re.compile(r"^session opened for local user (\S+) from ")
+RE_SFTP_OPEN = re.compile(r'^open "([^"]*)" flags (\S+)')
+
+
+def journal_events(since):
+    """回傳 {user: {"login": [ts], "pubkey": [ts], "download": [ts]}}；journal 讀不到回傳 None。"""
+    cmd = ["journalctl", "-q", "--no-pager", "-o", "json",
+           "--output-fields=MESSAGE,SYSLOG_PID,_PID", f"--since=@{int(since)}"]
+    cmd += [f"SYSLOG_IDENTIFIER={i}" for i in JOURNAL_IDS]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if p.returncode != 0:
+        return None
+    ev = {}
+    sftp_pid = {}
+    for line in p.stdout.splitlines():
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        msg = e.get("MESSAGE")
+        if isinstance(msg, list):
+            msg = bytes(msg).decode("utf-8", "replace")
+        if not isinstance(msg, str):
+            continue
+        ts = int(e.get("__REALTIME_TIMESTAMP", 0)) / 1e6
+        pid = e.get("SYSLOG_PID") or e.get("_PID")
+        m = RE_ACCEPT.match(msg)
+        if m:
+            d = ev.setdefault(m.group(2), {})
+            d.setdefault("login", []).append(ts)
+            if m.group(1) == "publickey":
+                d.setdefault("pubkey", []).append(ts)
+            continue
+        m = RE_SFTP_USER.match(msg)
+        if m:
+            sftp_pid[pid] = m.group(1)
+            continue
+        m = RE_SFTP_OPEN.match(msg)
+        if m and pid in sftp_pid and "READ" in m.group(2) and m.group(1).endswith("error.txt"):
+            ev.setdefault(sftp_pid[pid], {}).setdefault("download", []).append(ts)
+    return ev
+
+
+# ---------------------------------------------------------------- 教學關卡檢查點
+
+def check_authorized_keys(home):
+    ssh = home / ".ssh"
+    ak = ssh / "authorized_keys"
+    if not ak.exists():
+        if (home / "id_ed25519.pub").exists() or list(home.glob("*.pub")):
+            return PART, "公鑰傳上來了，還沒放進 ~/.ssh/authorized_keys"
+        return NONE, ""
+    text = read_text(ak) or ""
+    if not re.search(r"^\s*(ssh-(ed25519|rsa|dss)|ecdsa-sha2-|sk-)", text, re.M):
+        return BAD, "authorized_keys 裡沒有公鑰（被 > 蓋掉了？）"
+    for p, what in ((home, "家目錄"), (ssh, "~/.ssh"), (ak, "authorized_keys")):
+        try:
+            if p.stat().st_mode & 0o022:
+                return BAD, f"{what}的權限讓群組或其他人可寫，sshd 會拒用金鑰"
+        except OSError:
+            pass
+    return PART, "公鑰放好了，exit 後重新登入應該不用密碼"
+
+
+def check_report(home):
+    rpt = home / "reports" / "error.txt"
+    if rpt.exists():
+        if SEED_ERROR in (read_text(rpt) or ""):
+            return PART, "報告做好了，記得 scp 回筆電"
+        return BAD, "reports/error.txt 沒有最後那筆 ERROR"
+    if (home / "error.txt").exists():
+        return PART, "error.txt 還沒搬到 ~/reports"
+    return NONE, ""
+
+
+def check_service(home, running):
+    log = read_text(home / ".log" / "app.log")
+    if log is None:
+        return UNK, "讀不到 app.log"
+    lines = log.splitlines()
+    # 只看 setup 時 lab-app 自己寫的那筆 app is disabled 之後（預置的舊 log 不算）
+    start = next((i for i, l in enumerate(lines) if SEED_ERROR in l), -1)
+    after = lines[start + 1:]
+    if any(l.endswith(" INFO: started") for l in after):
+        return OK, "執行中" if running else "啟動過，目前沒在跑"
+    errs = [l for l in after if " ERROR: " in l]
+    if not errs:
+        return NONE, ""
+    last = errs[-1]
+    for key, desc in APP_ERRORS:
+        if key in last:
+            return BAD, f"lab-app：{desc}"
+    # 不是 lab-app 會寫的錯誤（例如 app.log 被 > 蓋掉、只剩預置的舊錯誤）：當作還沒動
+    return NONE, ""
+
+
+def lesson_status(pw, procs, journal):
+    """journal 為 None 表示學員端（或 journal 讀不到）。"""
+    user, home = pw.pw_name, Path(pw.pw_dir)
+    comms = procs.get(pw.pw_uid, set())
+    online = bool(comms & {"sshd", "sshd-session"})
+    base = lesson_baseline(user)
+    res = {}
+    is_root = os.geteuid() == 0
+
+    if not is_root:
+        res["login"] = (OK, "")
+    elif journal is None:
+        res["login"] = (OK, "") if online else (UNK, "journal 讀不到")
+    else:
+        ev = journal.get(user, {})
+        res["login"] = (OK, "") if online or any(t >= base for t in ev.get("login", [])) else (NONE, "")
+
+    key = check_authorized_keys(home)
+    if is_root and journal is not None:
+        if any(t >= base for t in journal.get(user, {}).get("pubkey", [])):
+            key = (OK, "")
+    elif not is_root:
+        info = read_text(os.environ.get("SSH_USER_AUTH", ""), 4096) if os.environ.get("SSH_USER_AUTH") else None
+        if info and re.search(r"^publickey ", info, re.M):
+            key = (OK, "這次是用金鑰登入的")
+    res["key"] = key
+
+    rpt = check_report(home)
+    if is_root and journal is not None:
+        if any(t >= base for t in journal.get(user, {}).get("download", [])):
+            rpt = (OK, "")
+    res["report"] = rpt
+
+    res["service"] = check_service(home, "lab-app" in comms)
+    return res, online
+
+
+# ---------------------------------------------------------------- challange
+
+def challange_status(pw, procs):
+    user, home = pw.pw_name, Path(pw.pw_dir)
+    chal = home / CHAL_DIRNAME
+    st = {}
+    try:
+        st["x"] = bool((chal / "decoder.sh").stat().st_mode & 0o100)
+    except OSError:
+        st["x"] = False
+
+    kf = chal / "key.txt"
+    if not (kf.exists() or kf.is_symlink()):
+        st["key"] = NONE
+    else:
+        mine, real = first_line(kf), first_line(KEY_PATH)
+        st["key"] = OK if mine is not None and mine == real else PART
+
+    st["evil_txt"] = (chal / "evil.txt").exists()
+    st["flag_html"] = (chal / "flag.html").exists()
+    st["evil"] = "evil-killer" in procs.get(pw.pw_uid, set())
+
+    sub_flag = (read_text(home / ".lab" / "flag", 256) or "").strip()
+    sub_bonus = norm_bonus(read_text(home / ".lab" / "bonus", 256))
+    if os.geteuid() == 0:
+        try:
+            ans = json.loads(read_text(ANSWERS_DIR / f"{user}.json") or "")
+            st["flag"] = OK if sub_flag and sub_flag == ans["flag"] else NONE
+            st["bonus"] = OK if sub_bonus and sub_bonus == ans["bonus"].upper() else NONE
+        except (ValueError, KeyError, TypeError):
+            st["flag"] = st["bonus"] = UNK
+    else:
+        h = load_hashes(user)
+        if h is None:
+            st["flag"] = st["bonus"] = UNK
+        else:
+            st["flag"] = OK if sub_flag and check_hash(h.get("flag"), sub_flag) else NONE
+            st["bonus"] = OK if sub_bonus and check_hash(h.get("bonus"), sub_bonus) else NONE
+    return st
+
+
+def load_hashes(user):
+    try:
+        return json.loads(read_text(USERS_DIR / f"{user}.json") or "")
+    except ValueError:
+        return None
+
+
+# ---------------------------------------------------------------- 學員端
+
+LESSON_ITEMS = [
+    ("login", "1 SSH 登入"),
+    ("key", "2 金鑰登入"),
+    ("report", "3 錯誤報告"),
+    ("service", "5 修好 lab-app"),
+]
+
+
+def me():
+    return pwd.getpwuid(os.getuid())
+
+
+def require_student():
+    pw = me()
+    try:
+        members = grp.getgrnam(STUDENT_GROUP).gr_mem
+    except KeyError:
+        members = []
+    if pw.pw_name not in members:
+        sys.exit("lab：這個指令給學員用。講師請用 sudo lab --all（說明：lab --help）")
+    return pw
+
+
+def cmd_status():
+    pw = require_student()
+    procs = proc_table()
+    lesson, _ = lesson_status(pw, procs, None)
+    ch = challange_status(pw, procs)
+
+    print(paint(f"{pw.pw_name} 的進度", "1"))
+    print()
+    print(paint("教學關卡", "1"))
+    for key, label in LESSON_ITEMS:
+        state, note = lesson[key]
+        print(f"  {mark(state)} {pad(label, 16)}{note}".rstrip())
+
+    print()
+    print(paint("challange 闖關", "1"))
+    print("  任務：解開 ~/.challange 裡的加密檔拿到 flag，用 lab 提交")
+    print("  先讀：~/.challange/README.txt")
+    print(f"  evil-killer：{paint('執行中', '33') if ch['evil'] else '沒在執行'}")
+    print(f"  {mark(ch['flag'])} flag    " + ("已取得" if ch["flag"] == OK else "提交：lab flag '<flag>'"))
+    print(f"  {mark(ch['bonus'])} bonus   " + ("已取得" if ch["bonus"] == OK else "提交：lab bonus <文字>"))
+    print()
+    print("  卡住了：lab hint")
+
+
+def server_ip():
+    parts = os.environ.get("SSH_CONNECTION", "").split()
+    return parts[2] if len(parts) >= 3 else "<伺服器 IP>"
+
+
+def hints(user):
+    port = PORT_BASE + student_number(user)
+    ip = server_ip()
+    return [
+        "先讀 ~/.challange/README.txt（cat ~/.challange/README.txt），\n"
+        "然後執行解密器：cd ~/.challange，再 ./decoder.sh",
+
+        "出現 Permission denied：用 ls -l 看 decoder.sh 的權限，\n"
+        "前面沒有 x 就不能執行。用 chmod +x decoder.sh 補上執行權限\n"
+        "（也可以直接 bash decoder.sh）",
+
+        "找不到密鑰：密鑰在 /lab/key.txt，要放到 ~/.challange/key.txt。三選一：\n"
+        "  cp /lab/key.txt ~/.challange/key.txt\n"
+        "  cat /lab/key.txt >> ~/.challange/key.txt\n"
+        "  ln -s /lab/key.txt ~/.challange/key.txt\n"
+        "用 >> 時要確定 key.txt 原本不存在或是空的：第一行必須就是密鑰",
+
+        "flag 不見了：cat ~/.challange/evil.txt 看看是誰幹的。\n"
+        "用 systemctl --user status evil-killer 確認牠正在跑，\n"
+        "再用 systemctl --user stop evil-killer 讓牠停下來，然後重新執行解密器",
+
+        "提交：cat ~/.challange/flag.html 找到 flag，用 lab flag '...'（整串含大括號，用單引號包起來）。\n"
+        "bonus 要用瀏覽器看，兩種方法擇一：\n"
+        f"  筆電執行 scp {user}@{ip}:~/.challange/flag.html . 再用瀏覽器打開\n"
+        f"  伺服器在 ~/.challange 執行 python3 -m http.server {port}，\n"
+        f"  筆電瀏覽器開 http://{ip}:{port}/flag.html（看完 Ctrl+C 關掉；它會公開整個資料夾）\n"
+        "看到的 5 個字用 lab bonus <文字> 提交",
+    ]
+
+
+def auto_hint(pw):
+    ch = challange_status(pw, proc_table())
+    if ch["flag"] == OK or (ch["flag_html"] and not ch["evil"]):
+        return 5
+    if ch["evil_txt"] or ch["key"] == OK:
+        return 4
+    if ch["key"] != NONE or ch["x"]:
+        return 3
+    return 1
+
+
+def cmd_hint(arg):
+    pw = require_student()
+    hs = hints(pw.pw_name)
+    if arg is None:
+        n = auto_hint(pw)
+    else:
+        try:
+            n = int(arg)
+        except ValueError:
+            n = 0
+        if not 1 <= n <= len(hs):
+            sys.exit(f"lab：提示編號是 1 到 {len(hs)}")
+    print(paint(f"提示 {n}/{len(hs)}", "1"))
+    print(hs[n - 1])
+    print()
+    print(f"其他提示：lab hint 1 … lab hint {len(hs)}")
+
+
+def save_answer(pw, name, value):
+    d = Path(pw.pw_dir) / ".lab"
+    d.mkdir(mode=0o700, exist_ok=True)
+    (d / name).write_text(value + "\n", encoding="utf-8")
+
+
+def cmd_submit(kind, args):
+    pw = require_student()
+    value = " ".join(args).strip()
+    if not value:
+        sys.exit("用法：lab flag '<flag>'" if kind == "flag" else "用法：lab bonus <文字>")
+    h = load_hashes(pw.pw_name)
+    if h is None:
+        sys.exit("lab：還沒有你的答案資料，請找講師")
+    if kind == "bonus":
+        value = norm_bonus(value)
+    if check_hash(h.get(kind), value):
+        save_answer(pw, kind, value)
+        print(paint(f"✓ {kind} 正確！", "32"))
+        return
+    print(paint(f"✗ {kind} 不對，再試試", "31"))
+    if kind == "flag" and not value.startswith("flag"):
+        print("  flag 要整串提交，包含 flag 和大括號，用單引號包起來")
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------- 講師端
+
+def require_root():
+    if os.geteuid() != 0:
+        sys.exit("lab：這個指令要 root（sudo lab …）")
+
+
+def user_systemctl(pw, *args):
+    return subprocess.run(
+        ["runuser", "-u", pw.pw_name, "--", "env", f"XDG_RUNTIME_DIR=/run/user/{pw.pw_uid}",
+         "systemctl", "--user", *args],
+        capture_output=True, text=True, timeout=30)
+
+
+def pick_students(names):
+    all_ = students()
+    if not names:
+        return all_
+    by = {p.pw_name: p for p in all_}
+    out = []
+    for n in names:
+        if n not in by:
+            sys.exit(f"lab：{n} 不是學員（不在 {STUDENT_GROUP} 群組）")
+        out.append(by[n])
+    return out
+
+
+def cmd_start_stop(start, names):
+    require_root()
+    fails = 0
+    for pw in pick_students(names):
+        if start:
+            user_systemctl(pw, "daemon-reload")
+            p = user_systemctl(pw, "enable", "--now", SERVICE)
+        else:
+            p = user_systemctl(pw, "disable", "--now", SERVICE)
+        if p.returncode == 0:
+            print(f"  {paint('ok', '32')}  {pw.pw_name}")
+        else:
+            fails += 1
+            print(f"  {paint('!!', '31')}  {pw.pw_name}：{(p.stderr or p.stdout).strip()}")
+    sys.exit(1 if fails else 0)
+
+
+def cmd_reset(names):
+    require_root()
+    if not names:
+        sys.exit("用法：lab --reset <帳號>…")
+    fails = 0
+    for pw in pick_students(names):
+        was = user_systemctl(pw, "is-active", "--quiet", SERVICE).returncode == 0
+        user_systemctl(pw, "disable", "--now", SERVICE)
+        user_systemctl(pw, "reset-failed", SERVICE)
+        p = subprocess.run([BUILDER, "build", "--force", pw.pw_name], capture_output=True, text=True)
+        if p.returncode != 0:
+            fails += 1
+            print(f"  {paint('!!', '31')}  {pw.pw_name}：{(p.stderr or p.stdout).strip()}")
+            continue
+        if was:
+            user_systemctl(pw, "enable", "--now", SERVICE)
+        print(f"  {paint('ok', '32')}  {pw.pw_name} 已重置" + ("，evil-killer 已重新啟動" if was else ""))
+    sys.exit(1 if fails else 0)
+
+
+def collect_all():
+    pws = students()
+    procs = proc_table()
+    since = min((lesson_baseline(p.pw_name) for p in pws), default=time.time())
+    journal = journal_events(since)
+    rows = []
+    for pw in pws:
+        lesson, online = lesson_status(pw, procs, journal)
+        rows.append((pw, online, lesson, challange_status(pw, procs)))
+    return rows, journal is not None
+
+
+def cmd_all(as_json):
+    require_root()
+    rows, journal_ok = collect_all()
+    if as_json:
+        out = {}
+        for pw, online, lesson, ch in rows:
+            out[pw.pw_name] = {
+                "online": online,
+                "lesson": {k: v[0] for k, v in lesson.items()},
+                "lesson_notes": {k: v[1] for k, v in lesson.items()},
+                "challange": ch,
+            }
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return
+
+    def yes(b):
+        return OK if b else NONE
+
+    cols = ["帳號", "在線", "1登入", "2金鑰", "3報告", "5服務", "│", "鑰", "吃", "停", "flag", "bonus", "evil", "備註"]
+    table = []
+    done = [0] * len(cols)
+    for pw, online, lesson, ch in rows:
+        stopped = ch["evil_txt"] and not ch["evil"]
+        states = [lesson["login"][0], lesson["key"][0], lesson["report"][0], lesson["service"][0],
+                  ch["key"], yes(ch["evil_txt"]), yes(stopped), ch["flag"], ch["bonus"]]
+        note = next((lesson[k][1] for k in ("login", "key", "report", "service")
+                     if lesson[k][0] != OK and lesson[k][1]), "")
+        if not note and lesson["service"][0] == OK and lesson["service"][1] != "執行中":
+            note = lesson["service"][1]
+        cells = [pw.pw_name, paint("●", "32") if online else mark(NONE)]
+        cells += [mark(s) for s in states[:4]] + ["│"] + [mark(s) for s in states[4:]]
+        cells += [paint("跑", "33") if ch["evil"] else mark(NONE), note]
+        for i, s in enumerate(states):
+            if s == OK:
+                done[i + 2 + (1 if i >= 4 else 0)] += 1
+        done[1] += online
+        done[12] += ch["evil"]
+        table.append(cells)
+
+    widths = [max([width(c)] + [width(r[i]) for r in table]) for i, c in enumerate(cols)]
+    widths[-1] = 0
+
+    def line(cells):
+        return "  ".join(pad(c, widths[i]) for i, c in enumerate(cells)).rstrip()
+
+    n = len(rows)
+    print(paint(f"lab 進度  {datetime.now():%H:%M:%S}  學員 {n} 人", "1")
+          + ("" if journal_ok else paint("  （journal 讀不到：登入/金鑰/下載無法判斷）", "33")))
+    print(paint("✓ 完成  △ 做一半  ✗ 有問題  · 還沒做    鑰=密鑰放對 吃=flag 被吃過 停=停掉 evil-killer", "2"))
+    print()
+    print(paint(line(cols), "1"))
+    for r in table:
+        print(line(r))
+    foot = ["完成"] + [str(d) for d in done[1:6]] + ["│"] + [str(d) for d in done[7:13]] + [""]
+    print(paint(line(foot), "1"))
+
+
+# ---------------------------------------------------------------- main
+
+USAGE = """\
+學員：
+  lab                    看自己的進度
+  lab hint [N]           提示（不加 N 會依目前進度挑一則）
+  lab flag '<flag>'      提交 flag
+  lab bonus <文字>       提交 bonus
+講師（root）：
+  lab --start [帳號…]    啟動 evil-killer（enable --now）
+  lab --stop  [帳號…]    停止 evil-killer（disable --now）
+  lab --all [--json]     計分板；投影：sudo watch -c -n 5 env LAB_COLOR=1 lab --all
+  lab --reset 帳號…      重置學員的 challange"""
+
+
+def main():
+    a = sys.argv[1:]
+    if not a:
+        if os.geteuid() == 0:
+            print(USAGE)
+            return
+        cmd_status()
+    elif a[0] in ("-h", "--help", "help"):
+        print(USAGE)
+    elif a[0] == "hint":
+        cmd_hint(a[1] if len(a) > 1 else None)
+    elif a[0] in ("flag", "bonus"):
+        cmd_submit(a[0], a[1:])
+    elif a[0] == "--start":
+        cmd_start_stop(True, a[1:])
+    elif a[0] == "--stop":
+        cmd_start_stop(False, a[1:])
+    elif a[0] == "--all":
+        cmd_all("--json" in a[1:])
+    elif a[0] == "--reset":
+        cmd_reset(a[1:])
+    else:
+        sys.exit(f"lab：不認得「{a[0]}」\n\n{USAGE}")
+
+
+if __name__ == "__main__":
+    main()

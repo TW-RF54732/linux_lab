@@ -1,0 +1,75 @@
+#!/bin/bash
+# evil-killer：challange 闖關的搗蛋鬼 daemon。
+#
+# 以學員本人身分（systemd user service）執行，每 1 秒一輪：
+#   - 內容含 flag 標記的一般檔案就刪掉（只看內容，不看檔名）
+#       ~ 底下全部（遞迴），排除 ~/.lab/ 與 ~/.bash_history
+#       /tmp、/dev/shm 深度 ≤ 3、擁有者是自己、小於 1 MB
+#   - 第一次吃掉東西之後，維持 ~/.challange/evil.txt 的內容（被刪或被改都在 1 秒內恢復）
+#
+# 安裝位置：/opt/lab/evil-killer（root:root 755），由 /etc/systemd/user/evil-killer.service 啟動。
+#
+# 注意：shebang 刻意寫 /bin/bash，不能改成 /usr/bin/env bash。
+# 用 env 會再 execve 一次，程序名稱（comm）就變成 bash，
+# 講師端的 pgrep -x evil-killer 與 lab --all 都會找不到它。
+
+umask 022
+
+DIR="$HOME/.challange"
+EVIL="$DIR/evil.txt"
+MARK='flag{'
+
+# IFS= 保留第一行開頭的空白；read -d '' 讀到檔尾會回傳 1，屬正常
+IFS= read -r -d '' EVIL_TEXT <<'EOF'
+          ,,,,,,,,,,,
+       ,#############,
+      ##  \\     //  ##
+     ##   (@)   (@)   ##
+     ##       ^       ##
+      ##  \/\/\/\/\  ##
+       '##  \/\/\/  ##'
+          '#######'
+
+I am evil-killer
+I eat your flag hahaha
+try to stop me!!
+EOF
+EVIL_TEXT=${EVIL_TEXT%$'\n'}   # 和 $(< file) 的比較一致（它會去掉結尾換行）
+
+trap 'exit 0' TERM INT HUP
+
+# 列出所有要吃的檔案（NUL 分隔）
+victims() {
+    find "$HOME" \( -path "$HOME/.lab" -o -path "$HOME/.bash_history" \) -prune \
+            -o -type f -print0 2>/dev/null \
+        | xargs -0 -r grep -lZsF -- "$MARK" 2>/dev/null
+    # -size -1024k：不能寫 -1M，find 會先無條件進位成 MB，-1M 只配得到空檔
+    find /tmp /dev/shm -maxdepth 3 -type f -user "$UID" -size -1024k -print0 2>/dev/null \
+        | xargs -0 -r grep -lZsF -- "$MARK" 2>/dev/null
+}
+
+# evil.txt 不存在、是連結、內容被改 → 重寫
+ensure_evil() {
+    if [ -f "$EVIL" ] && [ ! -L "$EVIL" ] && [ "$(< "$EVIL")" == "$EVIL_TEXT" ]; then
+        return
+    fi
+    rm -rf -- "$EVIL" 2>/dev/null
+    mkdir -p -- "$DIR" 2>/dev/null
+    printf '%s\n' "$EVIL_TEXT" > "$EVIL" 2>/dev/null
+}
+
+eaten=0
+[ -e "$EVIL" ] && eaten=1   # 之前已經吃過（服務重新啟動）
+
+while :; do
+    found=()
+    mapfile -d '' found < <(victims)
+    if [ "${#found[@]}" -gt 0 ]; then
+        rm -f -- "${found[@]}" 2>/dev/null
+        eaten=1
+    fi
+    [ "$eaten" -eq 1 ] && ensure_evil
+    # sleep 放背景再 wait：收到 TERM 時 wait 立刻返回，systemctl --user stop 不會卡住
+    sleep 1 &
+    wait $!
+done

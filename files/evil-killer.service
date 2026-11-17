@@ -1,0 +1,12 @@
+[Unit]
+Description=evil-killer
+# 只對學員（labusers 群組）啟動；管理者與 root 的 user manager 會略過
+ConditionGroup=labusers
+
+[Service]
+ExecStart=/opt/lab/evil-killer
+# 不自動重啟：學員自己 kill 掉也算停得掉（非標準解，不防堵也不教）
+Restart=no
+
+[Install]
+WantedBy=default.target

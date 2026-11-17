@@ -1,0 +1,370 @@
+#!/usr/bin/python3 -I
+# lab-challange：產生 challange 闖關的密鑰與每位學員的檔案（root 專用）。
+#
+#   lab-challange key                    產生 /lab/key.txt（已存在就只檢查格式）
+#   lab-challange build <user>...        產生學員的 ~/.challange 與答案；已產生過就略過
+#   lab-challange build --force <user>   清掉 ~/.challange、~/.lab 後重新產生（新的 flag 與 bonus）
+#   lab-challange preview --out DIR [--key FILE]
+#                                        不碰系統路徑，把檔案產生到 DIR（本機測試用）
+#
+# 安裝位置：/opt/lab/admin/lab-challange（root:root 700）。只用 Python 標準函式庫，加密呼叫 openssl。
+#
+# 注意：decoder.sh 與 README.txt 都不可以出現 flag 標記（f-l-a-g-左大括號），
+# 否則放在學員家目錄會被 evil-killer 當成 flag 吃掉。程式最後會檢查。
+
+import argparse
+import base64
+import hashlib
+import json
+import os
+import pwd
+import secrets
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+KEY_DIR = Path("/lab")
+KEY_PATH = KEY_DIR / "key.txt"
+KEY_LEN = 128
+# 大小寫英文、數字與規格列出的符號；排除空白、引號、反斜線、大括號
+KEY_CHARS = ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+             "!@#$%^&*()-_=+[];:,.<>?/~")
+
+CHAL_DIRNAME = ".challange"
+STATE = Path("/var/lib/lab")
+USERS_DIR = STATE / "users"       # 加鹽雜湊，root:<學員> 640
+ANSWERS_DIR = STATE / "answers"   # 明文答案，root 700 / 600
+
+BONUS_CHARS = "ACDEFHJKLMNPRTUWXY34679"
+BONUS_LEN = 5
+HASH_ITER = 200_000
+MARK = "flag" + "{"
+
+# 5×7 點陣字
+FONT = {
+    "A": [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "C": [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+    "D": ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+    "E": ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+    "F": ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+    "H": ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "J": ["..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."],
+    "K": ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+    "L": ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+    "M": ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
+    "N": ["#...#", "#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"],
+    "P": ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+    "R": ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+    "T": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+    "U": ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "W": ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "#.#.#", ".#.#."],
+    "X": ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+    "Y": ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+    "3": ["#####", "...#.", "..#..", "...#.", "....#", "#...#", ".###."],
+    "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+    "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+    "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+    "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+}
+assert set(FONT) == set(BONUS_CHARS)
+
+README = """\
+================ challange ================
+學長留了一份加密的檔案給你，解開就能拿到 flag。
+但這台 server 上住著一隻搗蛋鬼，牠會吃掉你解出來的東西。
+
+目標
+  拿到 flag，用 lab 提交。
+  隱藏目標：flag 檔裡還藏了一個 bonus，只有「畫出來」才看得到。
+
+你手上有
+  解密器：~/.challange/decoder.sh
+  密鑰：  /lab/key.txt   （所有人都能讀，但不能改）
+
+流程
+  1. 讓解密器可以執行
+  2. 把密鑰放到解密器要的位置（解密器會告訴你在哪）
+  3. 執行解密器
+  4. flag 不見了？找出是誰幹的，讓牠停下來
+  5. 再解密一次，拿到 flag
+
+規則
+  不准用滑鼠複製貼上密鑰，用指令搞定它。
+  卡住了：lab hint
+============================================
+"""
+
+# decoder.sh 樣板：@DIR@、@DATA@ 由 render_decoder 代入。不可以出現 flag 標記。
+DECODER = r"""#!/bin/bash
+# 解密器：把下面內嵌的加密檔解開，寫到 ~/.challange/flag.html
+# 密鑰：~/.challange/key.txt 的第一行
+
+set -o pipefail
+DIR='@DIR@'
+KEY="$DIR/key.txt"
+OUT="$DIR/flag.html"
+
+if [ ! -e "$KEY" ] && [ ! -L "$KEY" ]; then
+    echo "[錯誤] 找不到密鑰檔：~/.challange/key.txt"
+    echo "       密鑰放在哪裡請看 ~/.challange/README.txt，檔名要一模一樣"
+    exit 1
+fi
+if [ ! -f "$KEY" ] || [ ! -r "$KEY" ]; then
+    echo "[錯誤] 讀不到密鑰檔：~/.challange/key.txt"
+    echo "       可能是權限不足，或符號連結指向的檔案不存在"
+    exit 1
+fi
+
+DATA='
+@DATA@'
+
+# 先在記憶體裡解開並檢查，確定正確才寫檔：失敗不留下任何檔案
+{ plain=$(printf '%s' "$DATA" | base64 -d | openssl enc -d -aes-256-cbc -pbkdf2 -pass "file:$KEY" 2>/dev/null); } 2>/dev/null
+rc=$?
+if [ "$rc" -ne 0 ] || ! grep -q 'flag[{]' <<<"$plain"; then
+    echo "[錯誤] 密鑰不正確"
+    echo "       key.txt 的第一行必須完全等於密鑰"
+    exit 1
+fi
+
+tmp=$(mktemp "$DIR/.decoder.XXXXXX") || { echo "[錯誤] 無法在 ~/.challange 建立暫存檔"; exit 1; }
+trap 'rm -f "$tmp"' EXIT
+# 寫入到 mv 之間若剛好被吃掉也算成功：flag 確實解出來了
+printf '%s\n' "$plain" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$OUT" 2>/dev/null
+echo "[成功] 已解密到 ~/.challange/flag.html"
+"""
+
+
+def die(msg):
+    sys.exit(f"lab-challange: {msg}")
+
+
+# ---------------------------------------------------------------- 密鑰
+
+def check_key_text(text):
+    lines = text.split("\n")
+    if len(lines) != 2 or lines[1] != "":
+        return "密鑰檔必須剛好一行（密鑰加換行）"
+    k = lines[0]
+    if len(k) != KEY_LEN:
+        return f"密鑰長度 {len(k)}，應為 {KEY_LEN}"
+    bad = sorted(set(c for c in k if c not in KEY_CHARS))
+    if bad:
+        return f"密鑰含不允許的字元：{''.join(bad)!r}"
+    return None
+
+
+def cmd_key(_args):
+    if KEY_PATH.exists():
+        err = check_key_text(KEY_PATH.read_text(encoding="ascii", errors="replace"))
+        if err:
+            die(f"{KEY_PATH}：{err}（要重產請先刪掉，所有學員也要重新 build --force）")
+    else:
+        KEY_DIR.mkdir(mode=0o755, exist_ok=True)
+        key = "".join(secrets.choice(KEY_CHARS) for _ in range(KEY_LEN))
+        tmp = KEY_PATH.with_suffix(".tmp")
+        tmp.write_text(key + "\n", encoding="ascii")
+        os.replace(tmp, KEY_PATH)
+        print(f"已產生 {KEY_PATH}")
+    os.chown(KEY_DIR, 0, 0)
+    os.chmod(KEY_DIR, 0o755)
+    os.chown(KEY_PATH, 0, 0)
+    os.chmod(KEY_PATH, 0o644)
+
+
+# ---------------------------------------------------------------- 內容產生
+
+def make_flag():
+    return f"flag{{evil_is_dead_{secrets.token_hex(4)}}}"
+
+
+def make_bonus():
+    return "".join(secrets.choice(BONUS_CHARS) for _ in range(BONUS_LEN))
+
+
+def render_html(flag, bonus, px=10):
+    dots = []
+    for i, ch in enumerate(bonus):
+        for r, row in enumerate(FONT[ch]):
+            for c, cell in enumerate(row):
+                if cell == "#":
+                    # 整體 +1 格：box-shadow 在元素自己的 border-box 內會被裁掉，(0,0) 那格不能用
+                    dots.append(((1 + i * 6 + c) * px, (1 + r) * px))
+    secrets.SystemRandom().shuffle(dots)
+    shadow = ",\n    ".join(f"{x}px {y}px #222" for x, y in dots)
+    width = (2 + len(bonus) * 6) * px
+    height = 9 * px
+    return f"""<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>challange</title>
+<style>
+  body {{ font-family: sans-serif; margin: 40px; }}
+  .bonus {{ width: {width}px; height: {height}px; }}
+  .px {{
+    width: {px}px; height: {px}px;
+    box-shadow:
+    {shadow};
+  }}
+</style>
+</head>
+<body>
+<h1>flag is: {flag}</h1>
+<p>用 lab flag 提交</p>
+<p>bonus 用 cat 看不到</p>
+<h1>bonus</h1>
+<div class="bonus"><div class="px"></div></div>
+</body>
+</html>"""
+
+
+def openssl(args, data):
+    p = subprocess.run(["openssl", "enc", "-aes-256-cbc", "-pbkdf2", *args],
+                       input=data, capture_output=True)
+    if p.returncode != 0:
+        die(f"openssl 失敗：{p.stderr.decode(errors='replace').strip()}")
+    return p.stdout
+
+
+def render_decoder(chal_dir, cipher):
+    if "'" in str(chal_dir):
+        die(f"路徑含單引號：{chal_dir}")
+    data = base64.encodebytes(cipher).decode("ascii")
+    return DECODER.replace("@DIR@", str(chal_dir)).replace("@DATA@", data)
+
+
+def hash_entry(value):
+    salt = secrets.token_bytes(16)
+    h = hashlib.pbkdf2_hmac("sha256", value.encode(), salt, HASH_ITER)
+    return {"salt": salt.hex(), "iter": HASH_ITER, "sha256": h.hex()}
+
+
+def generate(chal_dir, key_path):
+    """回傳 (flag, bonus, html, files)；files 是 {檔名: (內容, 權限)}。"""
+    flag, bonus = make_flag(), make_bonus()
+    html = render_html(flag, bonus)
+    cipher = openssl(["-salt", "-pass", f"file:{key_path}"], html.encode())
+    # 自我驗證：用同樣的方式解回來
+    back = openssl(["-d", "-pass", f"file:{key_path}"], cipher).decode()
+    if back != html or flag not in back:
+        die("自我驗證失敗：解密結果和原文不同")
+    decoder = render_decoder(chal_dir, cipher)
+    for name, text in (("decoder.sh", decoder), ("README.txt", README)):
+        if MARK in text:
+            die(f"{name} 含有 flag 標記，會被 evil-killer 吃掉")
+    return flag, bonus, html, {"README.txt": (README, 0o644), "decoder.sh": (decoder, 0o444)}
+
+
+# ---------------------------------------------------------------- build
+
+def remove_path(p):
+    if p.is_symlink() or p.is_file():
+        p.unlink()
+    elif p.is_dir():
+        shutil.rmtree(p)
+
+
+def write_json(path, obj, mode, uid=0, gid=0):
+    tmp = path.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.chown(tmp, uid, gid)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def build_user(name, force):
+    try:
+        pw = pwd.getpwnam(name)
+    except KeyError:
+        die(f"沒有這個帳號：{name}")
+    home = Path(pw.pw_dir)
+    chal = home / CHAL_DIRNAME
+    answers = ANSWERS_DIR / f"{name}.json"
+    hashes = USERS_DIR / f"{name}.json"
+
+    if not force and (chal / "decoder.sh").is_file() and answers.is_file() and hashes.is_file():
+        print(f"{name}：已產生過，略過（要重來請加 --force）")
+        return
+    if not KEY_PATH.is_file():
+        die(f"找不到 {KEY_PATH}，請先執行 lab-challange key")
+
+    for d, mode in ((STATE, 0o755), (USERS_DIR, 0o755), (ANSWERS_DIR, 0o700)):
+        d.mkdir(mode=mode, exist_ok=True)
+        os.chown(d, 0, 0)
+        os.chmod(d, mode)
+
+    flag, bonus, _html, files = generate(chal, KEY_PATH)
+
+    remove_path(chal)
+    remove_path(home / ".lab")
+    # 先以 root 700 建立並寫好檔案，最後才交給學員，避免中途被放符號連結
+    os.mkdir(chal, 0o700)
+    os.chown(chal, 0, 0)
+    for fname, (text, mode) in files.items():
+        p = chal / fname
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chown(p, pw.pw_uid, pw.pw_gid)
+        os.chmod(p, mode)
+    os.chown(chal, pw.pw_uid, pw.pw_gid)
+    os.chmod(chal, 0o755)
+
+    now = datetime.now().isoformat(timespec="seconds")
+    write_json(answers, {"flag": flag, "bonus": bonus, "created": now}, 0o600)
+    write_json(hashes, {"flag": hash_entry(flag), "bonus": hash_entry(bonus), "created": now},
+               0o640, 0, pw.pw_gid)
+    print(f"{name}：已產生 ~/{CHAL_DIRNAME}（decoder.sh、README.txt）與答案")
+
+
+def cmd_build(args):
+    if os.geteuid() != 0:
+        die("請用 root 執行")
+    for u in args.users:
+        build_user(u, args.force)
+
+
+def cmd_preview(args):
+    out = Path(args.out)
+    chal = out / CHAL_DIRNAME
+    chal.mkdir(parents=True, exist_ok=True)
+    key_path = Path(args.key) if args.key else out / "key.txt"
+    if not key_path.exists():
+        key_path.write_text("".join(secrets.choice(KEY_CHARS) for _ in range(KEY_LEN)) + "\n",
+                            encoding="ascii", newline="\n")
+    err = check_key_text(key_path.read_text(encoding="ascii"))
+    if err:
+        die(f"{key_path}：{err}")
+    flag, bonus, html, files = generate(chal.resolve(), key_path)
+    for fname, (text, _mode) in files.items():
+        (chal / fname).write_text(text, encoding="utf-8", newline="\n")
+    (out / "flag.html").write_text(html, encoding="utf-8", newline="\n")
+    (out / "answers.json").write_text(json.dumps({"flag": flag, "bonus": bonus}) + "\n",
+                                      encoding="utf-8")
+    print(f"flag={flag} bonus={bonus} → {out}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="產生 challange 闖關檔案")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("key", help="產生或檢查 /lab/key.txt").set_defaults(func=cmd_key)
+    b = sub.add_parser("build", help="產生學員的 ~/.challange 與答案")
+    b.add_argument("users", nargs="+")
+    b.add_argument("--force", action="store_true", help="清掉重來（新的 flag 與 bonus）")
+    b.set_defaults(func=cmd_build)
+    p = sub.add_parser("preview", help="產生到指定目錄（本機測試）")
+    p.add_argument("--out", required=True)
+    p.add_argument("--key")
+    p.set_defaults(func=cmd_preview)
+    args = ap.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

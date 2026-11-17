@@ -69,14 +69,14 @@ echo "    systemd: ${state:-unknown}"
 
 echo "==> 推送檔案到 CT:/root/linux_lab"
 pct exec "$CTID" -- mkdir -p /root/linux_lab/files
-for f in setup.sh verify.sh lab.conf files/lab-app files/lab-seed files/lab-app.service; do
+FILES=(setup.sh verify.sh lab.conf files/lab-app files/lab-seed files/lab-app.service
+       files/evil-killer files/evil-killer.service files/lab files/lab-challange)
+for f in "${FILES[@]}"; do
     perms=644
-    case "$f" in *.sh|files/lab-app|files/lab-seed) perms=755 ;; esac
+    case "$f" in *.sh|files/lab-app|files/lab-seed|files/evil-killer|files/lab|files/lab-challange) perms=755 ;; esac
     pct push "$CTID" "$HERE/$f" "/root/linux_lab/$f" --perms "$perms"
 done
-pct exec "$CTID" -- sed -i 's/\r$//' /root/linux_lab/setup.sh /root/linux_lab/verify.sh \
-    /root/linux_lab/lab.conf /root/linux_lab/files/lab-app /root/linux_lab/files/lab-seed \
-    /root/linux_lab/files/lab-app.service
+pct exec "$CTID" -- sed -i 's/\r$//' "${FILES[@]/#//root/linux_lab/}"
 
 echo "==> 執行 setup.sh"
 pct exec "$CTID" -- /root/linux_lab/setup.sh

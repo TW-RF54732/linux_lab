@@ -29,10 +29,11 @@ Lab scripts only run **inside the CT as root** (they need systemd, logind, sshd)
 ./setup.sh --reseed        # regenerate every student's ~/.log, ~/.config and service state
 ./verify.sh                # check lab01: perms, home contents, service failed, sshd -T, cgroup limits
 ./verify.sh --user lab05 --scenarios --fork-test   # also run lesson-5 fix scenarios / TasksMax fork bomb
+./verify.sh --challange --progress                 # full challange run (ends with lab --stop for ALL students) / checkpoint detection
 CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh   # on the Proxmox host
 ```
 
-`lab-seed` can be run locally for testing without root/chown: `python3 files/lab-seed --home /tmp/x --now "2026-11-21 14:00:00"`.
+`lab-seed` can be run locally for testing without root/chown: `python3 files/lab-seed --home /tmp/x --now "2026-11-21 14:00:00"`. Likewise `python3 files/lab-challange preview --out /tmp/c` generates a decoder/flag.html without touching system paths (needs `openssl`).
 
 ## Architecture: lab environment
 
@@ -44,6 +45,17 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh   # on the P
 - `lab-seed` is deterministic from `LAB_SEED`; only timestamps shift (anchored to `--now`). Other logs deliberately contain no uppercase `ERROR`, and `~/.config` has decoy dirs (one with `"enable": false`) whose names don't contain `app` — preserve these properties, the lesson depends on them.
 
 **Cross-file coupling**: `lab-app`'s exact ERROR strings are asserted in `verify.sh` (`--scenarios`), reproduced in `files/lab-seed` (`FINAL_ERROR`), and documented for students in `site/content/environment/lab-app.md`. Change all of them together.
+
+## Architecture: challange + `lab` command
+
+Spec: `docs/Linux Server 社課 challange 闖關規格.md` (deviations tabled in README; notably the dir is the hidden `~/.challange/`, README inside it).
+
+- `files/lab-challange` (root-only builder) creates `/lab/key.txt` and, per student, `~/.challange/{README.txt,decoder.sh}`, plaintext answers `/var/lib/lab/answers/<u>.json` (root 600) and pbkdf2 hashes `/var/lib/lab/users/<u>.json` (root:<u> 640). `decoder.sh` embeds the openssl-encrypted `flag.html` (bonus = shuffled `box-shadow` pixels of a 5×7 font); the builder self-tests decryption.
+- `files/evil-killer` (bash user service, started per student by `sudo lab --start`, not global-enabled) deletes any file containing the flag marker in `~` (except top-level `.lab`, `.bash_history`) and shallow `/tmp`,`/dev/shm`, then keeps `~/.challange/evil.txt`. Its shebang **must** be `#!/bin/bash` (not `env`) so comm is `evil-killer` for `pgrep -x`.
+- **Never put the literal flag marker (`flag` + `{`) in anything placed under a student's home** (decoder.sh, README.txt) — evil-killer eats it. Use `flag[{]` in greps.
+- `files/lab` (`/usr/local/bin/lab`): student status/hint/flag/bonus; root `--start/--stop/--all [--json]/--reset`. Teaching checkpoints: segment 1/2 from journal `Accepted …` lines, segment 3 download from `internal-sftp -l INFO` open lines (sshd drop-in), segment 5 from app.log lines after the first `ERROR: app is disabled`. Baseline time per student in `/var/lib/lab/lesson/<u>` (written by `setup.sh init_user`).
+
+Cross-file coupling: decoder messages and evil.txt text ↔ `verify.sh --challange`; `lab`'s `APP_ERRORS`/`SEED_ERROR` ↔ lab-app ERROR strings; `lab --all --json` keys ↔ `verify.sh` `lab_json`; `~/.challange` name appears in builder, evil-killer, lab, setup, verify.
 
 LXC gotchas (details in README): without `nesting=1`, logind/`user@.service` fail ("Failed to connect to bus"); testing as a student must use `ssh labNN@localhost` or set `XDG_RUNTIME_DIR` (scripts use `runuser` + explicit `XDG_RUNTIME_DIR`).
 

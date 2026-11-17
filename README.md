@@ -1,7 +1,8 @@
 # Linux Server 社課 Lab 環境
 
 依「Linux Server 社課 Lab 環境需求規格」在 **Proxmox 的 Ubuntu 24.04 CT（LXC）** 裡部署整套 lab：
-學員帳號、預置 log 與設定檔、`lab-app` daemon 與 systemd user service、SSH 設定、每人資源限制。
+學員帳號、預置 log 與設定檔、`lab-app` daemon 與 systemd user service、SSH 設定、每人資源限制，
+以及依「Linux Server 社課 challange 闖關規格」做的 challange 闖關（evil-killer）與 `lab` 進度／計分板指令。
 
 範圍外（另案）：每堂課前後的啟動與還原腳本。不過 `setup.sh --reseed` 已能把所有學員的預置檔與服務狀態重新產生到初始值，可以當還原腳本的基礎。
 
@@ -16,6 +17,10 @@
 | `files/lab-app` | daemon（Python 3，只用標準函式庫） | `/opt/lab/lab-app`（root 755） |
 | `files/lab-app.service` | user service 定義 | `/etc/systemd/user/lab-app.service`（root 644） |
 | `files/lab-seed` | 產生學員家目錄預置檔（固定種子） | `/opt/lab/admin/lab-seed`（root 700） |
+| `files/evil-killer` | challange 的搗蛋 daemon（bash） | `/opt/lab/evil-killer`（root 755） |
+| `files/evil-killer.service` | user service 定義（不做 global enable） | `/etc/systemd/user/evil-killer.service`（root 644） |
+| `files/lab-challange` | 產生密鑰、每位學員的 decoder／README／答案（Python 3） | `/opt/lab/admin/lab-challange`（root 700） |
+| `files/lab` | 學員看進度／提示／提交，講師計分板與 evil-killer 開關（Python 3） | `/usr/local/bin/lab`（root 755） |
 
 ## 文件網站（GitHub Pages）
 
@@ -64,7 +69,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 
 ## setup.sh 做了什麼
 
-1. 安裝 `openssh-server libpam-systemd dbus-user-session nano less grep findutils procps python3 sudo`，設定時區。
+1. 安裝 `openssh-server libpam-systemd dbus-user-session nano less grep findutils procps python3 sudo openssl`，設定時區。
 2. 建立群組：`labusers`（學員）與 `labadmins`（管理者）。
 3. 安裝 `/opt/lab/lab-app` 與 `/etc/systemd/user/lab-app.service`，並 `systemctl --global enable`。
 4. 寫 `/etc/systemd/system/user-.slice.d/lab.conf`：`TasksMax=200`、`MemoryMax=512M`。
@@ -76,7 +81,12 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
    - 真的啟動一次 `lab-app`，讓它自己寫出 `ERROR: app is disabled …` 並以 78 結束
    - 確認服務為 **failed**、`app.log` 最後一筆是該 ERROR
 
+   - 寫入教學檢查點的基準時間 `/var/lib/lab/lesson/labNN`（`lab --all` 只看這之後的登入與下載紀錄）
+
    已有預置檔的帳號會略過；加 `--reseed` 會全部重新產生。
+8. challange：安裝 `evil-killer`、`lab`、`lab-challange`，產生 `/lab/key.txt`（已存在就只檢查格式）；
+   每位學員產生 `~/.challange/README.txt`、`~/.challange/decoder.sh`（444）與答案。evil-killer 先停著。
+   已產生過的會略過；`--reseed` 會停掉 evil-killer 並全部重產（新的 flag 與 bonus）。
 
 ## 和規格不同或補充的地方
 
@@ -88,6 +98,14 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 | JSON 錯誤行號 | `line N` | 錯在檔尾（少右括號）時指向最後一行有內容的行 | 單行檔案不會出現「line 2」 |
 | `~/.config` 其他目錄 | ≥5 個、≥2 個有 `config.json` | 7 個，3 個有 `config.json`（其中 `chat-bot` 也是 `"enable": false`） | 逼學員看路徑判斷；目錄名都不含 `app`，`ls ~/.config \| grep app` 只有一筆 |
 | 其他 log | 不含相關 ERROR | 完全不含大寫 `ERROR` | `grep -r ERROR ~/.log` 時只會指向 app.log |
+| 闖關目錄 | `~/challange`，README 在 `~/README.txt` | `~/.challange/`，README 在 `~/.challange/README.txt` | 隱藏目錄，教學第 3 段「`ls` 看不到東西」不受影響；入口改由 `lab`（不帶參數）與 `lab hint 1` 告訴學員先讀 README |
+| 答案雜湊 | 加鹽 sha256，`labNN.json` 644 | pbkdf2-sha256（200k 次）、`root:labNN` 640 | 644 時別人讀得到；8 位 hex 與 5 字 bonus 用單次 sha256 很快就暴力破解得出來 |
+| 計分板比對 | 讀 `~/.lab` 重新比對雜湊 | 和 root 專用的明文答案比對 | 每 5 秒刷新 30 人，不必每次算 pbkdf2 |
+| 重置單一學員 | 手動步驟 | `sudo lab --reset labNN` | 一個指令做完：停 evil-killer、重產 decoder 與答案、原本在跑就重新啟動 |
+| `lab hint` | 逐步提示 | 不加 N 時依目前進度自動挑一則 | 學員不用自己判斷該看第幾則 |
+| `lab` 指令 | 只有 challange | 學員端與計分板都加上教學第 1、2、3、5 段的檢查點 | 講師在 root 一眼看出誰落後 |
+| sshd | — | 加 `ExposeAuthInfo yes`、`Subsystem sftp internal-sftp -l INFO` | 學員端判斷這次是否用金鑰登入；計分板從 sftp 紀錄判斷 error.txt 有沒有被拉回筆電。舊版 OpenSSH 不接受重複的 `Subsystem` 時 setup 會自動拿掉這行 |
+| evil-killer 排除 | `~/.lab/`、`~/.bash_history` | 只排除家目錄頂層這兩個路徑 | 避免學員把 flag 藏在任意名為 `.lab` 的子目錄 |
 
 app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決的舊 ERROR（每筆後面有恢復訊息），最後一筆是 `app is disabled`。同一個 `LAB_SEED` 產生的內容完全相同，只有時間戳跟著產生時間平移。
 
@@ -116,15 +134,48 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 - 不加參數：檢查 `lab01` 的帳號權限、家目錄內容、服務狀態（failed + app is disabled）、SSH 有效設定、cgroup 限制。
 - `--scenarios`：實際跑第 5 段（改 `true` → started + heartbeat → stop、壞 JSON、`"true"`、`True`、檔案不存在、結束碼 78），最後把 config 還原並讓服務回到 failed。**會在 app.log 多留測試行**，跑完要用 `setup.sh --reseed` 重新產生。
 - `--fork-test`：在測試帳號開超過 `TasksMax` 個程序，確認被擋下、另一個帳號不受影響。
+- 預設也會檢查 challange 初始狀態：`/lab/key.txt`、`~/.challange` 只有 `README.txt` 與 `decoder.sh`（444）、家目錄沒有 flag 標記、`./decoder.sh` 是 Permission denied、evil-killer 沒在跑、答案檔權限。
+- `--challange`：完整跑一次闖關（`lab --start`、三種放密鑰方式、被吃、evil.txt 恢復、`/tmp` 規則、`disable` 沒用、`stop`、提交 flag/bonus、`lab --all` 同步），最後 `lab --reset` 還原。**結尾會跑一次 `lab --stop`（所有學員）**，請在課前執行。
+- `--progress`：用臨時金鑰 `ssh` 與 `sftp` 到測試帳號，確認計分板的第 1、2、3 段偵測，最後刪掉 `~/.ssh`、`~/reports`。之後計分板會一直顯示測試帳號已完成，開課前 `setup.sh --reseed` 重設基準時間。
 - `--user lab05`：改用別的帳號（建議另外留一個測試帳號）。
 
 需要從**學員網段的外部電腦**手動確認的項目：
 
 - [ ] 用密碼 `ssh lab01@<IP>` 登入成功，提示字元是 `lab01@<hostname>:~$`
 - [ ] `systemctl --user status lab-app` 沒有 `Failed to connect to bus`（真正經過 SSH 登入的 PAM session）
-- [ ] Windows PowerShell 與 macOS 各跑一次第 3 段手動公鑰流程，重新登入不用密碼
+- [ ] Windows PowerShell 與 macOS 各跑一次第 2 段手動公鑰流程，重新登入不用密碼
 - [ ] N 人同時登入沒有被 `MaxStartups` 擋下
 - [ ] 還原腳本能把測試帳號回到初始狀態（另案）
+- [ ] 筆電 `scp labNN@<IP>:~/.challange/flag.html .` 下載後用瀏覽器看得到 bonus
+- [ ] 伺服器在 `~/.challange` 跑 `python3 -m http.server 81NN`，筆電瀏覽器連得到（Proxmox 防火牆要開 8101–81NN）
+- [ ] Windows 與 macOS 各用 `scp` 拉一次 `error.txt`，計分板第 3 段變 ✓（Windows 10 內建的舊版 scp 走 legacy 協定不留紀錄，只會到 △）
+
+## challange 闖關與 `lab` 指令
+
+| 時間點 | 指令 |
+| --- | --- |
+| 建置 | `setup.sh`（`--reseed` 會全部重產） |
+| 闖關開始 | `sudo lab --start` |
+| 上課中 | `sudo watch -c -n 5 env LAB_COLOR=1 lab --all` 投影計分板 |
+| 下課 | `sudo lab --stop` |
+| 重置單一學員 | `sudo lab --reset labNN` |
+
+`--start`、`--stop` 後面可以接帳號，只對那幾位操作。`lab --all --json` 輸出機器可讀的狀態（`verify.sh` 用）。
+
+計分板每人一列，`✓` 完成、`△` 做一半、`✗` 有問題、`·` 還沒做，最後一列是每欄完成人數，「備註」顯示第一個沒完成的教學項目卡在哪：
+
+| 欄 | 判斷方式 |
+| --- | --- |
+| 在線 | 有屬於該學員的 `sshd` 程序 |
+| 1 登入 | 基準時間後 journal 有 `Accepted … for labNN`，或目前在線 |
+| 2 金鑰 | ✓ journal 有 `Accepted publickey`；△ `authorized_keys` 放好了但還沒用金鑰登入；✗ 沒有金鑰行或權限太寬 |
+| 3 報告 | ✓ sftp 紀錄有讀取 `error.txt`（拉回筆電）；△ `~/reports/error.txt` 做好了，或 `~/error.txt` 還沒搬 |
+| 5 服務 | ✓ setup 寫的那筆 `app is disabled` 之後出現過 `INFO: started`；✗ 之後最後一筆 ERROR 的類別 |
+| 鑰 / 吃 / 停 | `~/.challange/key.txt` 第一行等於密鑰 / `evil.txt` 出現過 / `evil.txt` 在且 evil-killer 已停 |
+| flag / bonus | `~/.lab/flag`、`~/.lab/bonus` 和答案相同 |
+| evil | evil-killer 正在跑 |
+
+學員端 `lab` 顯示同樣的教學檢查點（讀不到 journal，所以金鑰改看 `$SSH_USER_AUTH`、報告只看檔案）與 challange 狀態。
 
 ## 開課當天
 
@@ -134,4 +185,4 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 /root/linux_lab/setup.sh --reseed
 ```
 
-注意 `--reseed` 只重新產生 `~/.log`、`~/.config` 與服務狀態，**不會**刪掉學員上一堂課留下的 `~/.ssh`、`~/reports`、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。
+注意 `--reseed` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**刪掉學員上一堂課留下的 `~/.ssh`、`~/reports`、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。

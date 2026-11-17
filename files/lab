@@ -226,14 +226,18 @@ def check_authorized_keys(home):
     return PART, "公鑰放好了，exit 後重新登入應該不用密碼"
 
 
+REPORT_DIRS = ("reports", "report")  # 講師版文件寫 reports，課堂上也可能教 report，兩個都認
+
+
 def check_report(home):
-    rpt = home / "reports" / "error.txt"
-    if rpt.exists():
-        if SEED_ERROR in (read_text(rpt) or ""):
+    found = [d for d in REPORT_DIRS if (home / d / "error.txt").exists()]
+    for d in found:
+        if SEED_ERROR in (read_text(home / d / "error.txt") or ""):
             return PART, "報告做好了，記得 scp 回筆電"
-        return BAD, "reports/error.txt 沒有最後那筆 ERROR"
+    if found:
+        return BAD, f"{found[0]}/error.txt 沒有最後那筆 ERROR"
     if (home / "error.txt").exists():
-        return PART, "error.txt 還沒搬到 ~/reports"
+        return PART, "error.txt 還沒搬到 ~/report"
     return NONE, ""
 
 

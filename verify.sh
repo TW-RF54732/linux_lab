@@ -8,7 +8,7 @@
 #   ./verify.sh --fork-test          # 另外在測試帳號實際超過 TasksMax，確認只影響自己
 #   ./verify.sh --challange          # 另外跑完整闖關（啟動 evil-killer、解密、被吃、停止、提交），最後 lab --reset 還原；
 #                                    #   結尾會跑一次 lab --stop（全部學員），請在課前執行
-#   ./verify.sh --progress           # 另外測 lab --all 的教學檢查點偵測（金鑰登入、下載 error.txt），最後清掉 ~/.ssh、~/reports
+#   ./verify.sh --progress           # 另外測 lab --all 的教學檢查點偵測（金鑰登入、下載 error.txt），最後清掉 ~/.ssh、~/report
 #
 # 需要從學員網段外部電腦手動確認的項目（密碼登入、公鑰登入、多人同時登入、bonus）見 README。
 
@@ -105,7 +105,7 @@ for d in .log .config; do
     check "~/$d 存在、擁有者 $U、權限 755" \
         bash -c "[ \"\$(stat -c '%U %a' '$HOME_/$d')\" = '$U 755' ]"
 done
-for x in .ssh reports error.txt; do
+for x in .ssh reports report error.txt; do
     [ -e "$HOME_/$x" ] && fail "~/$x 不應存在（課前要清掉）" || pass "~/$x 不存在"
 done
 for f in app.log access.log db.log cron.log boot.log; do
@@ -447,9 +447,9 @@ fi
 
 # ------------------------------------------------------------------ 教學檢查點偵測
 if [ "$PROGRESS" -eq 1 ]; then
-    section "教學檢查點偵測（會動到 $U 的 ~/.ssh、~/reports，最後刪掉）"
-    if [ -e "$HOME_/.ssh" ] || [ -e "$HOME_/reports" ]; then
-        fail "$U 已有 ~/.ssh 或 ~/reports，略過（避免蓋掉學員的東西；先 setup.sh --reseed 或換 --user）"
+    section "教學檢查點偵測（會動到 $U 的 ~/.ssh、~/report，最後刪掉）"
+    if [ -e "$HOME_/.ssh" ] || [ -e "$HOME_/report" ] || [ -e "$HOME_/reports" ]; then
+        fail "$U 已有 ~/.ssh、~/report 或 ~/reports，略過（避免蓋掉學員的東西；先 setup.sh --reseed 或換 --user）"
     else
         kd=$(mktemp -d)
         ssh-keygen -q -t ed25519 -N '' -f "$kd/id" -C lab-verify
@@ -463,11 +463,11 @@ if [ "$PROGRESS" -eq 1 ]; then
         [ "$(lab_json lesson login)" = ok ] && pass "lab --all：第 1 段 ✓" || fail "lab --all：第 1 段是 $(lab_json lesson login)"
         [ "$(lab_json lesson key)" = ok ] && pass "lab --all：第 2 段 ✓（journal 有 Accepted publickey）" \
             || fail "lab --all：第 2 段是 $(lab_json lesson key)"
-        as_user bash -c "mkdir -p ~/reports && grep ERROR ~/.log/app.log > ~/reports/error.txt"
-        [ "$(lab_json lesson report)" = part ] && pass "~/reports/error.txt 做好 → 第 3 段 △" \
-            || fail "~/reports/error.txt 做好 → 第 3 段是 $(lab_json lesson report)"
-        check "sftp 下載 ~/reports/error.txt 成功" \
-            bash -c "sftp $(printf '%q ' "${SO[@]}") -b - '$U@localhost' <<<'get reports/error.txt $kd/'"
+        as_user bash -c "mkdir -p ~/report && grep ERROR ~/.log/app.log > ~/report/error.txt"
+        [ "$(lab_json lesson report)" = part ] && pass "~/report/error.txt 做好 → 第 3 段 △" \
+            || fail "~/report/error.txt 做好 → 第 3 段是 $(lab_json lesson report)"
+        check "sftp 下載 ~/report/error.txt 成功" \
+            bash -c "sftp $(printf '%q ' "${SO[@]}") -b - '$U@localhost' <<<'get report/error.txt $kd/'"
         sleep 1
         if [ "$SFTP_LOG" -eq 1 ]; then
             [ "$(lab_json lesson report)" = ok ] && pass "lab --all：第 3 段 ✓（偵測到下載）" \
@@ -475,7 +475,7 @@ if [ "$PROGRESS" -eq 1 ]; then
         else
             echo "  NOTE sftp 下載偵測停用（見 SSH 段），略過第 3 段 ✓ 的檢查"
         fi
-        rm -rf "$HOME_/.ssh" "$HOME_/reports" "$kd"
+        rm -rf "$HOME_/.ssh" "$HOME_/report" "$kd"
         echo "  （journal 已有 $U 的登入與下載紀錄，計分板會一直顯示 ✓，開課前請 setup.sh --reseed 重設基準時間）"
     fi
 fi

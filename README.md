@@ -136,7 +136,7 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 - `--fork-test`：在測試帳號開超過 `TasksMax` 個程序，確認被擋下、另一個帳號不受影響。
 - 預設也會檢查 challange 初始狀態：`/lab/key.txt`、`~/.challange` 只有 `README.txt` 與 `decoder.sh`（444）、家目錄沒有 flag 標記、`./decoder.sh` 是 Permission denied、evil-killer 沒在跑、答案檔權限。
 - `--challange`：完整跑一次闖關（`lab --start`、三種放密鑰方式、被吃、evil.txt 恢復、`/tmp` 規則、`disable` 沒用、`stop`、提交 flag/bonus、`lab --all` 同步），最後 `lab --reset` 還原。**結尾會跑一次 `lab --stop`（所有學員）**，請在課前執行。
-- `--progress`：用臨時金鑰 `ssh` 與 `sftp` 到測試帳號，確認計分板的第 1、2、3 段偵測，最後刪掉 `~/.ssh`、`~/reports`。之後計分板會一直顯示測試帳號已完成，開課前 `setup.sh --reseed` 重設基準時間。
+- `--progress`：用臨時金鑰 `ssh` 與 `sftp` 到測試帳號，確認計分板的第 1、2、3 段偵測，最後刪掉 `~/.ssh`、`~/report`。之後計分板會一直顯示測試帳號已完成，開課前 `setup.sh --reseed` 重設基準時間。
 - `--user lab05`：改用別的帳號（建議另外留一個測試帳號）。
 
 需要從**學員網段的外部電腦**手動確認的項目：
@@ -169,7 +169,7 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 | 在線 | 有屬於該學員的 `sshd` 程序 |
 | 1 登入 | 基準時間後 journal 有 `Accepted … for labNN`，或目前在線 |
 | 2 金鑰 | ✓ journal 有 `Accepted publickey`；△ `authorized_keys` 放好了但還沒用金鑰登入；✗ 沒有金鑰行或權限太寬 |
-| 3 報告 | ✓ sftp 紀錄有讀取 `error.txt`（拉回筆電）；△ `~/reports/error.txt` 做好了，或 `~/error.txt` 還沒搬 |
+| 3 報告 | ✓ sftp 紀錄有讀取 `error.txt`（拉回筆電）；△ `~/report/error.txt` 或 `~/reports/error.txt` 做好了（兩個目錄名都認），或 `~/error.txt` 還沒搬 |
 | 5 服務 | ✓ setup 寫的那筆 `app is disabled` 之後出現過 `INFO: started`；✗ 之後最後一筆 ERROR 的類別 |
 | 鑰 / 吃 / 停 | `~/.challange/key.txt` 第一行等於密鑰 / `evil.txt` 出現過 / `evil.txt` 在且 evil-killer 已停 |
 | flag / bonus | `~/.lab/flag`、`~/.lab/bonus` 和答案相同 |
@@ -185,4 +185,4 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 /root/linux_lab/setup.sh --reseed
 ```
 
-注意 `--reseed` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**刪掉學員上一堂課留下的 `~/.ssh`、`~/reports`、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。
+注意 `--reseed` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**刪掉學員上一堂課留下的 `~/.ssh`、`~/report`（或 `~/reports`）、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。

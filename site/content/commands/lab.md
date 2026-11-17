@@ -101,7 +101,19 @@ flag 裡有大括號等符號，用單引號 `'...'` 包起來，shell 就不會
 
 ### 講師用的選項 {#admin}
 
-`lab --all`、`lab --start` 這些是講師的計分板與闖關開關，要 root 才能執行，你用不到。
+`lab --all`、`lab --watch`、`lab --start` 這些是講師的計分板與闖關開關，要 root 才能執行，你用不到。
+
+講師投影的計分板每人一列，符號和上面一樣。`1登入`～`5服務` 對應五段教學關卡，`│` 右邊是 challange：
+
+| 欄 | 什麼時候變 `✓` |
+| --- | --- |
+| `x` | `~/.challange/decoder.sh` 加上執行權限（用 `bash decoder.sh` 執行的話這欄不會亮） |
+| `鑰` | `~/.challange/key.txt` 第一行就是密鑰；`△` 檔案在但內容不對 |
+| `吃` | flag 被 evil-killer 吃過（`evil.txt` 出現了） |
+| `停` | 被吃過，而且 evil-killer 已經停掉 |
+| `解` | `~/.challange/flag.html` 現在還在；被吃掉會變回 `·`，停掉 evil-killer 再解一次才留得住 |
+| `flag`、`bonus` | 用 `lab flag`、`lab bonus` 提交正確 |
+| `evil` | 顯示 `跑` 表示你的 evil-killer 正在執行 |
 
 ## 範例 {#examples}
 

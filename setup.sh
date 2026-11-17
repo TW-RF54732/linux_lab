@@ -4,6 +4,7 @@
 # 用法（在 CT 內以 root 執行）：
 #   ./setup.sh             # 部署；已存在的學員帳號不會被改動預置檔
 #   ./setup.sh --reseed    # 另外把所有學員的預置檔、服務狀態與 challange 重新產生到初始值
+#   ./setup.sh --reseed-user lab05 [--reseed-user lab06 ...]   # 只還原指定學員
 #
 # 可以重複執行（idempotent）。設定在同目錄的 lab.conf。
 
@@ -18,12 +19,18 @@ fi
 source "$HERE/lab.conf"
 
 RESEED=0
-for arg in "$@"; do
-    case "$arg" in
+RESEED_USERS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
         --reseed) RESEED=1 ;;
-        -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
-        *) echo "unknown option: $arg" >&2; exit 2 ;;
+        --reseed-user)
+            [ $# -ge 2 ] || { echo "--reseed-user 需要帳號名稱" >&2; exit 2; }
+            RESEED_USERS+=("$2"); shift ;;
+        --reseed-user=*) RESEED_USERS+=("${1#*=}") ;;
+        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
+    shift
 done
 
 STUDENT_GROUP=labusers
@@ -170,6 +177,12 @@ ok "TasksMax=$LAB_TASKS_MAX MemoryMax=$LAB_MEMORY_MAX"
 # ------------------------------------------------------------------ SSH
 say "SSH 設定"
 SSHD_DROPIN=/etc/ssh/sshd_config.d/00-lab.conf
+if [ "${LAB_ROOT_SSH:-0}" = 1 ]; then
+    ROOT_LOGIN=prohibit-password
+    usermod -aG "$ADMIN_GROUP" root
+else
+    ROOT_LOGIN=no
+fi
 grep -Eq '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config \
     || die "/etc/ssh/sshd_config 沒有 Include sshd_config.d，請手動檢查"
 write_sshd_dropin() {  # write_sshd_dropin <1=加 sftp 讀檔紀錄>
@@ -180,7 +193,7 @@ UsePAM yes
 PasswordAuthentication yes
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes
-PermitRootLogin no
+PermitRootLogin $ROOT_LOGIN
 AllowGroups $STUDENT_GROUP $ADMIN_GROUP
 MaxStartups $LAB_MAX_STARTUPS
 # 學員端 lab 讀 \$SSH_USER_AUTH 判斷這次是不是用金鑰登入（第 2 段檢查點）
@@ -195,6 +208,8 @@ EOF
     chmod 644 "$SSHD_DROPIN"
 }
 mkdir -p /run/sshd
+ssh-keygen -A >/dev/null 2>&1   # 補齊缺少的 host key（CT 範本常常沒有）
+ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1 || die "沒有 SSH host key，ssh-keygen -A 失敗"
 write_sshd_dropin 1
 if ! sshd -t 2>/dev/null; then
     # 舊版 OpenSSH 遇到重複的 Subsystem（主設定檔已有一行）會直接報錯
@@ -203,7 +218,7 @@ if ! sshd -t 2>/dev/null; then
     warn "sshd 不接受 drop-in 裡的 Subsystem，第 3 段「已下載 error.txt」偵測停用（計分板只會到 △）"
 fi
 eff=$(sshd -T 2>/dev/null)
-for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin no" \
+for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin $ROOT_LOGIN" \
           "usepam yes" "maxstartups $LAB_MAX_STARTUPS" "exposeauthinfo yes"; do
     grep -qx "$kv" <<<"$eff" && ok "$kv" || die "sshd 有效設定不是「$kv」，可能被其他設定檔蓋掉：$(grep "^${kv%% *} " <<<"$eff")"
 done
@@ -222,6 +237,15 @@ else
     systemctl restart ssh.service
     ok "ssh.service 已重新啟動"
 fi
+# 檢核：sshd 真的在跑、22 port 有回應 SSH banner
+systemctl is-active --quiet ssh.service || systemctl is-active --quiet ssh.socket \
+    || die "ssh 服務沒有啟動（systemctl status ssh）"
+banner=""
+for _ in 1 2 3 4 5; do
+    banner=$(timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22 && head -n1 <&3' 2>/dev/null) && [ -n "$banner" ] && break
+    sleep 1
+done
+case "$banner" in SSH-*) ok "127.0.0.1:22 回應 $banner" ;; *) die "127.0.0.1:22 沒有 SSH banner" ;; esac
 if [ -z "$LAB_ADMINS" ]; then
     warn "LAB_ADMINS 是空的：root 與其他非學員帳號將無法 SSH，請用 pct enter 管理"
 fi
@@ -312,12 +336,22 @@ init_user() {
     return 0
 }
 
+for r in "${RESEED_USERS[@]}"; do
+    found=0
+    for i in $(seq 1 "$LAB_COUNT"); do
+        [ "$(student_name "$i")" = "$r" ] && found=1
+    done
+    [ "$found" -eq 1 ] || die "--reseed-user：$r 不是學員帳號（$(student_name 1) … $(student_name "$LAB_COUNT")）"
+done
+
 say "預置檔與初始狀態"
 fail=0
 for i in $(seq 1 "$LAB_COUNT"); do
     u=$(student_name "$i")
     home=$(getent passwd "$u" | cut -d: -f6)
-    if [ "$RESEED" -eq 1 ] || [ ! -f "$home/.log/app.log" ] || [ ! -f "$home/.config/app/config.json" ]; then
+    reseed_this=$RESEED
+    for r in "${RESEED_USERS[@]}"; do [ "$r" = "$u" ] && reseed_this=1; done
+    if [ "$reseed_this" -eq 1 ] || [ ! -f "$home/.log/app.log" ] || [ ! -f "$home/.config/app/config.json" ]; then
         if init_user "$u"; then ok "$u 初始化完成"; else fail=$((fail + 1)); fi
     else
         loginctl enable-linger "$u"

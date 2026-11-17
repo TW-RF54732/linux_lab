@@ -220,7 +220,8 @@ check "教學檢查點基準時間 /var/lib/lab/lesson/$U 存在" test -s "/var/
 # ------------------------------------------------------------------ SSH
 section "SSH"
 eff=$(sshd -T 2>/dev/null)
-for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin no" "usepam yes" \
+ROOT_LOGIN_EXPECT=$([ "${LAB_ROOT_SSH:-0}" = 1 ] && echo prohibit-password || echo no)
+for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin $ROOT_LOGIN_EXPECT" "usepam yes" \
           "exposeauthinfo yes"; do
     grep -qx "$kv" <<<"$eff" && pass "$kv" || fail "$kv（目前：$(grep "^${kv%% *} " <<<"$eff")）"
 done
@@ -235,6 +236,8 @@ else
     echo "  NOTE sftp 沒有記錄讀檔（$(grep -i '^subsystem ' <<<"$eff")），計分板第 3 段只會到 △"
 fi
 check "sshd 在 22 port 監聽" bash -c "ss -Hltn | grep -qE ':22\\b'"
+check "ssh 服務運作中（ssh.service 或 ssh.socket）" bash -c "systemctl is-active --quiet ssh.service || systemctl is-active --quiet ssh.socket"
+check "127.0.0.1:22 回應 SSH banner" bash -c "timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22 && head -n1 <&3' | grep -q '^SSH-'"
 if command -v fail2ban-client >/dev/null; then
     fail "安裝了 fail2ban：教室共用 IP 時請加白名單或暫停"
 else

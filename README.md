@@ -84,7 +84,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 
    - 寫入教學檢查點的基準時間 `/var/lib/lab/lesson/labNN`（`lab --all` 只看這之後的登入與下載紀錄）
 
-   已有預置檔的帳號會略過；加 `--reseed` 會全部重新產生。
+   已有預置檔的帳號會略過；加 `--reseed` 會全部重新產生；只想還原某幾個帳號用 `--reseed-user lab05`（可重複指定）。
 8. challange：安裝 `evil-killer`、`lab`、`lab-challange`，產生 `/lab/key.txt`（已存在就只檢查格式）；
    寫入並啟動 `/etc/systemd/system/lab-progress.service`（學員端進度快取）；
    每位學員產生 `~/.challange/README.txt`、`~/.challange/decoder.sh`（444）與答案。evil-killer 先停著。
@@ -99,6 +99,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 | `True`、`yes` 等未加引號的字 | 嚴格來說是 JSON 語法錯誤 | 回報 `"enable" must be true or false (boolean)` | 與講師版第 5 段的表一致，對學員比較有用 |
 | JSON 錯誤行號 | `line N` | 錯在檔尾（少右括號）時指向最後一行有內容的行 | 單行檔案不會出現「line 2」 |
 | `~/.config` 其他目錄 | ≥5 個、≥2 個有 `config.json` | 7 個，3 個有 `config.json`（其中 `chat-bot` 也是 `"enable": false`） | 逼學員看路徑判斷；目錄名都不含 `app`，`ls ~/.config \| grep app` 只有一筆 |
+| root SSH | `PermitRootLogin no`，root 不能 SSH | `lab.conf` 的 `LAB_ROOT_SSH=1` 時改為 `prohibit-password`（僅金鑰），並把 root 加進 `labadmins`；設 0 則回到規格 | 講師用金鑰直接 `ssh root@CT` 管理；密碼登入 root 仍然不行 |
 | 其他 log | 不含相關 ERROR | 完全不含大寫 `ERROR` | `grep -r ERROR ~/.log` 時只會指向 app.log |
 | 闖關目錄 | `~/challange`，README 在 `~/README.txt` | `~/.challange/`，README 在 `~/.challange/README.txt` | 隱藏目錄，教學第 3 段「`ls` 看不到東西」不受影響；入口改由 `lab`（不帶參數）與 `lab hint 1` 告訴學員先讀 README |
 | 答案雜湊 | 加鹽 sha256，`labNN.json` 644 | pbkdf2-sha256（200k 次）、`root:labNN` 640 | 644 時別人讀得到；8 位 hex 與 5 字 bonus 用單次 sha256 很快就暴力破解得出來 |
@@ -189,4 +190,4 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 /root/linux_lab/setup.sh --reseed
 ```
 
-注意 `--reseed` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**清空學員上一堂課放進 `~/.ssh/authorized_keys` 的公鑰（`verify.sh` 會提醒），也不會刪掉 `~/report`（或 `~/reports`）、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。
+注意 `--reseed`／`--reseed-user` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**清空學員上一堂課放進 `~/.ssh/authorized_keys` 的公鑰（`verify.sh` 會提醒），也不會刪掉 `~/report`（或 `~/reports`）、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。

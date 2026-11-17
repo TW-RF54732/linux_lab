@@ -14,7 +14,7 @@ description: 整堂課的五個段落、每一步要打的指令，以及要回�
 | 1 | SSH 登入 | 說出自己的 `whoami` 與 `hostname` |
 | 2 | SSH 金鑰登入 | 免密碼登入成功 |
 | 3 | 找出問題 | 筆電上有一份 `error.txt` |
-| 4 | 權限與執行腳本 | `./demo.sh` 印出自己的帳號 |
+| 4 | 權限與執行腳本 | `./demo.sh` 印出「執行成功」 |
 | 5 | 修復與服務 | `~/.log/app.log` 最後出現 `INFO: started` |
 
 驗收三件事：重新登入不用密碼；錯誤報告 `error.txt` 已經拉回筆電；`tail ~/.log/app.log` 看到 `started`。
@@ -80,7 +80,7 @@ pwd
 ls -lh
 ```
 
-`ls` 什麼都沒有，`ls -la` 才看到以 `.` 開頭的隱藏目錄 `.log` 與 `.config`（`.challange` 是課後闖關用的，先不管它）。`app.log` 很大，不要 `cat`，改用 `less` 翻頁，或用 `grep` 直接過濾：
+`ls` 什麼都沒有，`ls -la` 才看到以 `.` 開頭的隱藏目錄 `.log` 與 `.config`（`.local` 第 4 段才用，`.challange` 是課後闖關用的，先不管它們）。`app.log` 很大，不要 `cat`，改用 `less` 翻頁，或用 `grep` 直接過濾：
 
 ```command
 less app.log
@@ -139,38 +139,40 @@ cat /etc/shadow
 
 最後一行會得到 `Permission denied`：你不是 root，也沒有 sudo。
 
-接著自己寫一個腳本並執行。先 `cd ~` 回家目錄，用第 3 段學的 `>`、`>>` 寫兩行：
+接著練習執行腳本。講師已經在 `~/.local/scripts` 放好一個 `demo.sh`，先看看它：
 
 ```command
-cd ~
-echo '#!/bin/bash' > demo.sh
-echo 'echo "我是 $(whoami)"' >> demo.sh
+cd ~/.local/scripts
+ls -l
 cat demo.sh
 ```
 
-第一行 `#!/bin/bash` 告訴系統用 bash 來跑。外層一定要用**單引號**，`$(whoami)` 才會原封不動寫進檔案。執行看看：
+```output
+-rw-r--r-- 1 lab07 lab07 306 Nov 19 09:12 demo.sh
+```
+
+腳本就是把指令一行一行寫進檔案。第一行 `#!/bin/bash` 告訴系統用 bash 來跑。執行看看：
 
 ```command
-ls -l demo.sh
 ./demo.sh
 ```
 
 ```output
--rw-rw-r-- 1 lab07 lab07 36 Nov 21 14:05 demo.sh
 -bash: ./demo.sh: Permission denied
 ```
 
-權限裡沒有 `x`，所以不能執行。Linux 不看副檔名，叫 `.sh` 不代表能跑。補上執行權限再試一次：
+權限是 `rw-r--r--`，三段都沒有 `x`，所以不能執行。Linux 不看副檔名，叫 `.sh` 不代表能跑。檔案的擁有者是你，自己就能補上執行權限：
 
 ```command
 chmod +x demo.sh
-ls -l demo.sh
+ls -l
 ./demo.sh
 ```
 
 ```output
--rwxrwxr-x 1 lab07 lab07 36 Nov 21 14:05 demo.sh
-我是 lab07
+-rwxr-xr-x 1 lab07 lab07 306 Nov 19 09:12 demo.sh
+執行成功！我是 lab07，在 linux-lab 上
+腳本就是把指令一行一行寫進檔案，加上 x 就能當成程式執行
 ```
 
 最後試試不加 `./`：
@@ -183,9 +185,9 @@ demo.sh
 demo.sh: command not found
 ```
 
-shell 只會去 `PATH` 裡的目錄（例如 `/usr/bin`）找指令，目前目錄不在裡面，所以執行自己目錄下的程式要寫 `./`。另外 `bash demo.sh` 不需要 `x` 也能跑：真正被執行的是 `bash`，`demo.sh` 只是被它讀進去。
+shell 只會去 `PATH` 裡的目錄（例如 `/usr/bin`）找指令，目前目錄不在裡面，所以執行目前目錄下的程式要寫 `./`。另外 `bash demo.sh` 不需要 `x` 也能跑：真正被執行的是 `bash`，`demo.sh` 只是被它讀進去。
 
-文件：[檔案權限](/commands/permissions/)、[id](/commands/id/)、[chmod](/commands/chmod/#errors)、[| > >>](/commands/redirection/)。
+文件：[檔案權限](/commands/permissions/)、[id](/commands/id/)、[chmod](/commands/chmod/#errors)、[家目錄與預置檔案](/environment/home/)。
 
 ## 第 5 段：修復與服務 {#part-5}
 

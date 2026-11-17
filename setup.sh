@@ -400,6 +400,10 @@ for i in $(seq 1 "$LAB_COUNT"); do
     else
         loginctl enable-linger "$u"
         [ -f "$LESSON_DIR/$u" ] || date +%s > "$LESSON_DIR/$u"
+        # 舊版部署沒有第 4 段的 demo.sh：只補這個檔案，不動學員的 log 與設定
+        if [ ! -e "$home/.local/scripts/demo.sh" ]; then
+            /opt/lab/admin/lab-seed "$u" --only-demo && ok "$u 補上 ~/.local/scripts/demo.sh"
+        fi
         ok "$u 已有預置檔，略過（要重來請加 --reseed）"
     fi
 done

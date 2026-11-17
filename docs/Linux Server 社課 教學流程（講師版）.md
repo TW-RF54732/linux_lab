@@ -79,11 +79,11 @@ Nov 16, 2026 · @lolLeo
 1. 使用者、群組、root：用 `id` 看自己的身分。root 是管理員，學員沒有 sudo，所以改不了系統。
 2. `ls -l` 怎麼看：用自己的 `ls -l ~/.config/app/config.json` 拆解五個部分：檔案類型、擁有者權限、群組權限、其他人權限、擁有者與群組。
 3. 對比：`ls -l /etc/shadow`，再 `cat /etc/shadow` 被拒絕（Permission denied）。
-4. 學員動手寫一個腳本並執行（在家目錄）：
-   1. 用第 3 段學的 `>`、`>>` 寫兩行：`echo '#!/bin/bash' > demo.sh`，再 `echo 'echo "我是 $(whoami)"' >> demo.sh`，`cat demo.sh` 確認。講解：第一行 `#!/bin/bash` 告訴系統用 bash 來跑；外層用單引號，`$(whoami)` 才會原封不動寫進檔案，等執行時才展開。
-   2. `ls -l demo.sh` 看到沒有 `x`，執行 `./demo.sh` → `Permission denied`。講解：Linux 不看副檔名，`.sh` 不代表能執行，要看有沒有 `x`。
-   3. `chmod +x demo.sh`，再 `ls -l demo.sh` 看到 `x` 出現了。
-   4. `./demo.sh` → 印出 `我是 lab07`。
+4. 學員動手執行預置的腳本（`~/.local/scripts/demo.sh`，setup 放好、擁有者是學員、權限 644）：
+   1. `cd ~/.local/scripts`，`ls -l` 看到 `rw-r--r--`，`cat demo.sh` 看內容。講解：腳本就是把指令一行一行寫進檔案；第一行 `#!/bin/bash` 告訴系統用 bash 來跑。
+   2. `./demo.sh` → `Permission denied`。講解：Linux 不看副檔名，`.sh` 不代表能執行，要看有沒有 `x`。
+   3. `chmod +x demo.sh`，再 `ls -l` 看到三段都多了 `x`。
+   4. `./demo.sh` → 印出「執行成功！我是 lab07…」。
    5. 對照：直接打 `demo.sh`（不加 `./`）→ `command not found`。講解：shell 只會到 `PATH` 裡的目錄找指令，目前目錄不在裡面，所以要用 `./` 指明「這個目錄下的」；`ls`、`cat` 能直接打，是因為它們在 `/usr/bin`。
    6. 補充：`bash demo.sh` 不需要 `x` 也能跑，因為執行的是 `bash`，`demo.sh` 只是被它讀進去。
 5. 回到第 2 段：為什麼 `~/.ssh` 要 700、`authorized_keys` 要 600。SSH 對私密檔案的權限很嚴格。
@@ -96,7 +96,7 @@ Nov 16, 2026 · @lolLeo
 
 記憶方式：r=4、w=2、x=1，三個數字依序是擁有者、群組、其他人。
 
-檢查點：`./demo.sh` 印出自己的帳號（計分板「4腳本」變 ✓；只看 `~/demo.sh` 有內容且擁有者有 `x`）。
+檢查點：`./demo.sh` 印出「執行成功」（計分板「4腳本」變 ✓；只看 `~/.local/scripts/demo.sh` 的擁有者有沒有 `x`）。
 
 ## 第 5 段：修復與服務（約 20 分）
 
@@ -130,7 +130,7 @@ Nov 16, 2026 · @lolLeo
 | 登入與身分 | `ssh`、`whoami`、`hostname`、`exit`、`id` | 1、2、3、4 |
 | 瀏覽 | `pwd`、`ls`（`-a` `-l` `-h`）、`cd`、`find` | 3、5 |
 | 讀檔 | `cat`、`less`、`tail`、`wc -l` | 2、3、5 |
-| 搜尋與管線 | `grep`、`\|`、`>`、`>>`、`echo` | 2、3、4、5 |
+| 搜尋與管線 | `grep`、`\|`、`>`、`>>` | 2、3、5 |
 | 檔案管理 | `touch`、`mkdir`、`cp`、`mv`、`rm` | 2、3、5 |
 | 編輯 | `nano` | 5 |
 | 傳輸與金鑰 | `ssh-keygen`、`scp` | 2、3 |
@@ -161,13 +161,14 @@ Nov 16, 2026 · @lolLeo
 | 改壞 `config.json` | `cp config.json.bak config.json` 重來 |
 | `./demo.sh` 出現 `Permission denied` | 這就是第 4 段要他們看到的；`ls -l` 看 `x`，`chmod +x` |
 | `demo.sh: command not found` | 少了 `./` |
-| `./demo.sh` 沒有任何輸出 | 檔案是空的（例如用 `touch` 建的），`cat demo.sh` 看內容，重新用 `echo` 寫 |
+| `./demo.sh: No such file or directory` | 不在 `~/.local/scripts`，先 `cd ~/.local/scripts` |
+| `demo.sh` 被改壞或刪掉 | root 執行 `setup.sh --reseed-user labNN` 重新產生 |
 | `>` 與 `>>` 搞混 | 第 3 段就是要讓他們搞混一次，再一起看結果 |
 | 學員習慣先 `cat` 再接 `grep` | 兩種都行，順口提醒直接 `grep` 少一步即可 |
 
 講師備註：
 
-- 時間最緊的是第 5 段，第 4 段的講解可以縮短來讓出時間，`demo.sh` 實作約 4 分鐘不要省。
+- 時間最緊的是第 5 段，第 4 段的講解可以縮短來讓出時間，`demo.sh` 實作約 3 分鐘不要省。
 - 第 2 段之前先確認每位學員的筆電有 `ssh`、`scp` 與 `ssh-keygen`。Windows 10 以上通常內建，老版本要先安裝 OpenSSH 用戶端。
 - 中途卡住的人，先問他們 `tail ~/.log/app.log` 看到什麼，log 就是答案。
 - 啟動與還原腳本另案處理，課前要確認每位學員的時間戳、服務狀態都回到初始值。

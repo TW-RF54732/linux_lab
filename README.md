@@ -78,7 +78,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
    預建 `~/.ssh`（700）與空的 `~/.ssh/authorized_keys`（600）；已存在的不清空，只修正擁有者與權限。
 7. 對每個新帳號建立初始狀態：
    - `loginctl enable-linger`
-   - 用 `lab-seed` 產生 `~/.log/*.log` 與 `~/.config/*`（app.log 先不含最後一筆 ERROR）
+   - 用 `lab-seed` 產生 `~/.log/*.log`、`~/.config/*`（app.log 先不含最後一筆 ERROR）與第 4 段的 `~/.local/scripts/demo.sh`（644，刻意沒有 x；舊部署重跑 setup 時會只補這個檔）
    - 真的啟動一次 `lab-app`，讓它自己寫出 `ERROR: app is disabled …` 並以 78 結束
    - 確認服務為 **failed**、`app.log` 最後一筆是該 ERROR
 
@@ -108,7 +108,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 | `lab hint` | 逐步提示 | 不加 N 時依目前進度自動挑一則 | 學員不用自己判斷該看第幾則 |
 | 投影計分板 | `sudo watch -c -n 5 env LAB_COLOR=1 lab --all` | `sudo lab --watch` | `watch` 在非 UTF-8 locale 下會吃掉所有中文字 |
 | `lab` 指令 | 只有 challange | 學員端與計分板都加上教學第 1～5 段的檢查點 | 講師在 root 一眼看出誰落後 |
-| 教學第 4 段 | 講師版原本「只講不做」，只 `touch` 空的 `demo.sh` 示範 `chmod +x` | 學員用 `echo` 寫出有內容的 `~/demo.sh`，親手經歷 `./demo.sh` 被拒 → `chmod +x` → 執行成功，計分板以 `demo.sh` 有內容且有 `x` 判斷 | 原本沒有任何一段真正練到 `chmod +x` 與 `./腳本`，課後 challange 的 `decoder.sh` 卻要用到 |
+| 教學第 4 段 | 講師版原本「只講不做」，只 `touch` 空的 `demo.sh` 示範 `chmod +x` | `lab-seed` 預置 `~/.local/scripts/demo.sh`（644），學員親手經歷 `./demo.sh` 被拒 → `chmod +x` → 執行成功，計分板以擁有者有沒有 `x` 判斷 | 原本沒有任何一段真正練到 `chmod +x` 與 `./腳本`，課後 challange 的 `decoder.sh` 卻要用到 |
 | sshd | — | 加 `ExposeAuthInfo yes`、`Subsystem sftp internal-sftp -l INFO` | 學員端判斷這次是否用金鑰登入；計分板從 sftp 紀錄判斷 error.txt 有沒有被拉回筆電。舊版 OpenSSH 不接受重複的 `Subsystem` 時 setup 會自動拿掉這行 |
 | evil-killer 排除 | `~/.lab/`、`~/.bash_history` | 只排除家目錄頂層這兩個路徑 | 避免學員把 flag 藏在任意名為 `.lab` 的子目錄 |
 | `~/.ssh` | 不預建，學員第 2 段自己 `mkdir -p` | setup 預建 `~/.ssh`（700）與空的 `authorized_keys`（600） | 學員只要把公鑰 `>>` 進去，不會卡在權限；`mkdir -p` 照樣不會出錯。計分板把空的 `authorized_keys` 視為還沒放公鑰 |
@@ -137,12 +137,12 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 /root/linux_lab/verify.sh --scenarios --fork-test
 ```
 
-- 不加參數：檢查 `lab01` 的帳號權限、家目錄內容、服務狀態（failed + app is disabled）、SSH 有效設定、cgroup 限制。
+- 不加參數：檢查 `lab01` 的帳號權限、家目錄內容（含 `~/.local/scripts/demo.sh` 為 644 且 `./demo.sh` 是 Permission denied）、服務狀態（failed + app is disabled）、SSH 有效設定、cgroup 限制。
 - `--scenarios`：實際跑第 5 段（改 `true` → started + heartbeat → stop、壞 JSON、`"true"`、`True`、檔案不存在、結束碼 78），最後把 config 還原並讓服務回到 failed。**會在 app.log 多留測試行**，跑完要用 `setup.sh --reseed` 重新產生。
 - `--fork-test`：在測試帳號開超過 `TasksMax` 個程序，確認被擋下、另一個帳號不受影響。
 - 預設也會檢查 challange 初始狀態：`/lab/key.txt`、`~/.challange` 只有 `README.txt` 與 `decoder.sh`（444）、家目錄沒有 flag 標記、`./decoder.sh` 是 Permission denied、evil-killer 沒在跑、答案檔權限。
 - `--challange`：完整跑一次闖關（`lab --start`、三種放密鑰方式、被吃、evil.txt 恢復、`/tmp` 規則、`disable` 沒用、`stop`、提交 flag/bonus、`lab --all` 同步），最後 `lab --reset` 還原。**結尾會跑一次 `lab --stop`（所有學員）**，請在課前執行。
-- `--progress`：用臨時金鑰 `ssh` 與 `sftp` 到測試帳號，確認計分板的第 1～4 段偵測，最後把 `authorized_keys` 清回空檔、刪掉 `~/report`、`~/demo.sh`。之後計分板會一直顯示測試帳號已完成，開課前 `setup.sh --reseed` 重設基準時間。
+- `--progress`：用臨時金鑰 `ssh` 與 `sftp` 到測試帳號，確認計分板的第 1～4 段偵測，最後把 `authorized_keys` 清回空檔、`demo.sh` 改回 644、刪掉 `~/report`。之後計分板會一直顯示測試帳號已完成，開課前 `setup.sh --reseed` 重設基準時間。
 - `--user lab05`：改用別的帳號（建議另外留一個測試帳號）。
 
 需要從**學員網段的外部電腦**手動確認的項目：
@@ -176,7 +176,7 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 | 1 登入 | 基準時間後 journal 有 `Accepted … for labNN`，或目前在線 |
 | 2 金鑰 | ✓ journal 有 `Accepted publickey`；△ `authorized_keys` 放好了但還沒用金鑰登入；✗ 沒有金鑰行或權限太寬 |
 | 3 報告 | ✓ sftp 紀錄有讀取 `error.txt`（拉回筆電）；△ `~/report/error.txt` 或 `~/reports/error.txt` 做好了（兩個目錄名都認），或 `~/error.txt` 還沒搬 |
-| 4 腳本 | ✓ `~/demo.sh` 有內容且擁有者有 `x`；△ 檔案是空的或還沒 `chmod +x`（只看權限，不追蹤是否真的執行過） |
+| 4 腳本 | ✓ `~/.local/scripts/demo.sh` 擁有者有 `x`（只看權限，不追蹤是否真的執行過）；✗ 檔案不見或被清空 |
 | 5 服務 | ✓ setup 寫的那筆 `app is disabled` 之後出現過 `INFO: started`；✗ 之後最後一筆 ERROR 的類別 |
 | 鑰 / 吃 / 停 | `~/.challange/key.txt` 第一行等於密鑰 / `evil.txt` 出現過 / `evil.txt` 在且 evil-killer 已停 |
 | flag / bonus | `~/.lab/flag`、`~/.lab/bonus` 和答案相同 |
@@ -192,4 +192,4 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 /root/linux_lab/setup.sh --reseed
 ```
 
-注意 `--reseed`／`--reseed-user` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**清空學員上一堂課放進 `~/.ssh/authorized_keys` 的公鑰（`verify.sh` 會提醒），也不會刪掉 `~/report`（或 `~/reports`）、`~/error.txt`、`~/demo.sh` 等檔案；要完整還原單一學員用 `setup.sh --wipe-user labNN`：先從密碼名單取出原密碼，停掉該學員所有程序，刪除帳號與家目錄、`/tmp`／`/var/tmp`／`/dev/shm` 裡屬於他的檔案、crontab、`/var/lib/lab` 底下的狀態檔，再用原密碼重建並重新產生預置檔與 challange（evil-killer 不會啟動，闖關中要再 `sudo lab --start`）。名單裡找不到該帳號就中止，不會刪。
+注意 `--reseed`／`--reseed-user` 只重新產生 `~/.log`、`~/.config`、`~/.local/scripts/demo.sh`（回到 644）、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**清空學員上一堂課放進 `~/.ssh/authorized_keys` 的公鑰（`verify.sh` 會提醒），也不會刪掉 `~/report`（或 `~/reports`）、`~/error.txt` 等檔案；要完整還原單一學員用 `setup.sh --wipe-user labNN`：先從密碼名單取出原密碼，停掉該學員所有程序，刪除帳號與家目錄、`/tmp`／`/var/tmp`／`/dev/shm` 裡屬於他的檔案、crontab、`/var/lib/lab` 底下的狀態檔，再用原密碼重建並重新產生預置檔與 challange（evil-killer 不會啟動，闖關中要再 `sudo lab --start`）。名單裡找不到該帳號就中止，不會刪。

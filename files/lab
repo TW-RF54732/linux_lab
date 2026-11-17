@@ -248,19 +248,19 @@ def check_report(home):
     return NONE, ""
 
 
-SCRIPT_NAME = "demo.sh"  # 第 4 段學員在家目錄自己寫、自己 chmod +x 的腳本
+SCRIPT_REL = ".local/scripts/demo.sh"  # 第 4 段：lab-seed 預置（644），學員自己 chmod +x 再執行
 
 
 def check_script(home):
-    p = home / SCRIPT_NAME
+    p = home / SCRIPT_REL
     try:
         st = p.stat()
     except OSError:
-        return NONE, ""
+        return BAD, f"~/{SCRIPT_REL} 不見了，請找講師"
     if not p.is_file() or st.st_size == 0:
-        return PART, f"{SCRIPT_NAME} 內容是空的，用 echo 和 >、>> 寫進去"
+        return BAD, "demo.sh 被清空了，請找講師"
     if not st.st_mode & 0o100:
-        return PART, f"{SCRIPT_NAME} 寫好了，還沒 chmod +x"
+        return NONE, ""
     return OK, ""
 
 

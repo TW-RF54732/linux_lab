@@ -135,6 +135,8 @@ done
 grep -qi "^allowgroups .*labusers" <<<"$eff" && pass "$(grep -i '^allowgroups' <<<"$eff")" || fail "AllowGroups 未含 labusers"
 pass "$(grep -i '^maxstartups' <<<"$eff")"
 check "sshd 在 22 port 監聽" bash -c "ss -Hltn | grep -qE ':22\\b'"
+check "ssh 服務運作中（ssh.service 或 ssh.socket）" bash -c "systemctl is-active --quiet ssh.service || systemctl is-active --quiet ssh.socket"
+check "127.0.0.1:22 回應 SSH banner" bash -c "timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22 && head -n1 <&3' | grep -q '^SSH-'"
 if command -v fail2ban-client >/dev/null; then
     fail "安裝了 fail2ban：教室共用 IP 時請加白名單或暫停"
 else

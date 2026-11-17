@@ -146,6 +146,8 @@ MaxStartups $LAB_MAX_STARTUPS
 EOF
 chmod 644 "$SSHD_DROPIN"
 mkdir -p /run/sshd
+ssh-keygen -A >/dev/null 2>&1   # 補齊缺少的 host key（CT 範本常常沒有）
+ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1 || die "沒有 SSH host key，ssh-keygen -A 失敗"
 sshd -t || { rm -f "$SSHD_DROPIN"; die "sshd 設定檢查失敗，已移除 $SSHD_DROPIN"; }
 eff=$(sshd -T 2>/dev/null)
 for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin no" \
@@ -162,6 +164,15 @@ else
     systemctl restart ssh.service
     ok "ssh.service 已重新啟動"
 fi
+# 檢核：sshd 真的在跑、22 port 有回應 SSH banner
+systemctl is-active --quiet ssh.service || systemctl is-active --quiet ssh.socket \
+    || die "ssh 服務沒有啟動（systemctl status ssh）"
+banner=""
+for _ in 1 2 3 4 5; do
+    banner=$(timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22 && head -n1 <&3' 2>/dev/null) && [ -n "$banner" ] && break
+    sleep 1
+done
+case "$banner" in SSH-*) ok "127.0.0.1:22 回應 $banner" ;; *) die "127.0.0.1:22 沒有 SSH banner" ;; esac
 if [ -z "$LAB_ADMINS" ]; then
     warn "LAB_ADMINS 是空的：root 與其他非學員帳號將無法 SSH，請用 pct enter 管理"
 fi

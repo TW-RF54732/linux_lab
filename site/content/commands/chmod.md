@@ -47,17 +47,28 @@ chmod 600 ~/.ssh/authorized_keys
 第 2 段：設定 SSH 要求的權限。
 
 ```command
-touch demo.sh
-ls -l demo.sh
+echo '#!/bin/bash' > demo.sh
+echo 'echo "我是 $(whoami)"' >> demo.sh
+./demo.sh
 chmod +x demo.sh
 ls -l demo.sh
+./demo.sh
 ```
 
 ```output
--rw-r--r-- 1 lab07 lab07 0 Nov 21 14:05 demo.sh
--rwxr-xr-x 1 lab07 lab07 0 Nov 21 14:05 demo.sh
+-bash: ./demo.sh: Permission denied
+-rwxrwxr-x 1 lab07 lab07 36 Nov 21 14:05 demo.sh
+我是 lab07
 ```
 
-第 4 段：三段都多了 `x`。
+第 4 段：剛寫好的腳本沒有 `x`，執行被拒；`chmod +x` 之後三段都多了 `x`，就能用 `./demo.sh` 執行。完整步驟見 [課程任務地圖](/guide/lab-tasks/#part-4)。
 
-改別人的檔案會出現 `Operation not permitted`。
+## 常見錯誤 {#errors}
+
+| 訊息 | 原因 | 怎麼辦 |
+| --- | --- | --- |
+| `./demo.sh: Permission denied` | 檔案沒有 `x` | `ls -l` 確認，`chmod +x demo.sh`；或改用 `bash demo.sh`（不需要 `x`） |
+| `demo.sh: command not found` | 少了 `./`，shell 只到 `PATH` 裡的目錄找指令 | 改打 `./demo.sh` |
+| `./demo.sh: No such file or directory` | 目前目錄下沒有這個檔案 | `pwd`、`ls` 確認自己在哪；檔案在家目錄就先 `cd ~` |
+| `./demo.sh` 沒有任何輸出 | 檔案是空的（例如用 `touch` 建的） | `cat demo.sh` 看內容，重新用 `echo` 寫進去 |
+| `Operation not permitted` | 想改別人的檔案，只有擁有者能改權限 | `ls -l` 看擁有者 |

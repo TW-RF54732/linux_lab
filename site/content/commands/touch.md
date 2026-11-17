@@ -27,12 +27,11 @@ touch ~/error.txt
 
 ```command
 touch ~/error.txt
-touch demo.sh
-ls -l demo.sh
+ls -l ~/error.txt
 ```
 
-1. 第 3 段：先建立空檔，再用 `>>` 把錯誤加進去。
-2. 第 4 段：建立檔案來示範 `chmod +x`。
-3. 看到大小是 `0`。
+第 3 段：先建立空檔，再用 `>>` 把錯誤加進去。`ls -l` 看到大小是 `0`。
+
+`touch` 建出來的是空檔。第 4 段的 `demo.sh` 要有內容才有東西可以執行，所以改用 `echo` 和 `>`、`>>` 寫，見 [課程任務地圖](/guide/lab-tasks/#part-4)。
 
 上層目錄不存在時會失敗（`No such file or directory`），先用 [mkdir -p](/commands/mkdir/) 建立。

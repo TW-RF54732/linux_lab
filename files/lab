@@ -248,6 +248,22 @@ def check_report(home):
     return NONE, ""
 
 
+SCRIPT_NAME = "demo.sh"  # 第 4 段學員在家目錄自己寫、自己 chmod +x 的腳本
+
+
+def check_script(home):
+    p = home / SCRIPT_NAME
+    try:
+        st = p.stat()
+    except OSError:
+        return NONE, ""
+    if not p.is_file() or st.st_size == 0:
+        return PART, f"{SCRIPT_NAME} 內容是空的，用 echo 和 >、>> 寫進去"
+    if not st.st_mode & 0o100:
+        return PART, f"{SCRIPT_NAME} 寫好了，還沒 chmod +x"
+    return OK, ""
+
+
 def check_service(home, running):
     log = read_text(home / ".log" / "app.log")
     if log is None:
@@ -340,6 +356,7 @@ def lesson_status(pw, procs, journal):
         rpt = (OK, "已經拉回筆電")
     res["report"] = rpt
 
+    res["script"] = check_script(home)
     res["service"] = check_service(home, "lab-app" in comms)
     return res, online
 
@@ -398,8 +415,11 @@ LESSON_ITEMS = [
     ("login", "1 SSH 登入"),
     ("key", "2 金鑰登入"),
     ("report", "3 錯誤報告"),
+    ("script", "4 執行腳本"),
     ("service", "5 修好 lab-app"),
 ]
+# 計分板（lab --all / --watch）的欄名
+LESSON_COLS = {"login": "1登入", "key": "2金鑰", "report": "3報告", "script": "4腳本", "service": "5服務"}
 
 
 def me():
@@ -649,25 +669,30 @@ def cmd_all(as_json):
     def yes(b):
         return OK if b else NONE
 
-    cols = ["帳號", "在線", "1登入", "2金鑰", "3報告", "5服務", "│", "鑰", "吃", "停", "flag", "bonus", "evil", "備註"]
+    # 欄位：帳號、在線、教學關卡（LESSON_ITEMS 的順序）、│、challange 五欄、evil、備註
+    lkeys = [k for k, _ in LESSON_ITEMS]
+    nl = len(lkeys)
+    cols = (["帳號", "在線"] + [LESSON_COLS[k] for k in lkeys]
+            + ["│", "鑰", "吃", "停", "flag", "bonus", "evil", "備註"])
+    sep = 2 + nl              # 「│」那一欄
+    evil_col = len(cols) - 2
     table = []
     done = [0] * len(cols)
     for pw, online, lesson, ch in rows:
         stopped = ch["evil_txt"] and not ch["evil"]
-        states = [lesson["login"][0], lesson["key"][0], lesson["report"][0], lesson["service"][0],
-                  ch["key"], yes(ch["evil_txt"]), yes(stopped), ch["flag"], ch["bonus"]]
-        note = next((lesson[k][1] for k in ("login", "key", "report", "service")
-                     if lesson[k][0] != OK and lesson[k][1]), "")
+        states = [lesson[k][0] for k in lkeys] + [
+            ch["key"], yes(ch["evil_txt"]), yes(stopped), ch["flag"], ch["bonus"]]
+        note = next((lesson[k][1] for k in lkeys if lesson[k][0] != OK and lesson[k][1]), "")
         if not note and lesson["service"][0] == OK and lesson["service"][1] != "執行中":
             note = lesson["service"][1]
         cells = [pw.pw_name, paint("●", "32") if online else mark(NONE)]
-        cells += [mark(s) for s in states[:4]] + ["│"] + [mark(s) for s in states[4:]]
+        cells += [mark(s) for s in states[:nl]] + ["│"] + [mark(s) for s in states[nl:]]
         cells += [paint("跑", "33") if ch["evil"] else mark(NONE), note]
         for i, s in enumerate(states):
             if s == OK:
-                done[i + 2 + (1 if i >= 4 else 0)] += 1
+                done[i + 2 + (1 if i >= nl else 0)] += 1
         done[1] += online
-        done[12] += ch["evil"]
+        done[evil_col] += ch["evil"]
         table.append(cells)
 
     widths = [max([width(c)] + [width(r[i]) for r in table]) for i, c in enumerate(cols)]
@@ -684,7 +709,7 @@ def cmd_all(as_json):
     print(paint(line(cols), "1"))
     for r in table:
         print(line(r))
-    foot = ["完成"] + [str(d) for d in done[1:6]] + ["│"] + [str(d) for d in done[7:13]] + [""]
+    foot = ["完成"] + [str(d) for d in done[1:sep]] + ["│"] + [str(d) for d in done[sep + 1:evil_col + 1]] + [""]
     print(paint(line(foot), "1"))
 
 

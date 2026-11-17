@@ -8,7 +8,7 @@
 #   ./verify.sh --fork-test          # 另外在測試帳號實際超過 TasksMax，確認只影響自己
 #   ./verify.sh --challange          # 另外跑完整闖關（啟動 evil-killer、解密、被吃、停止、提交），最後 lab --reset 還原；
 #                                    #   結尾會跑一次 lab --stop（全部學員），請在課前執行
-#   ./verify.sh --progress           # 另外測 lab --all 的教學檢查點偵測（金鑰登入、下載 error.txt），最後還原 authorized_keys、刪掉 ~/report
+#   ./verify.sh --progress           # 另外測 lab --all 的教學檢查點偵測（金鑰登入、下載 error.txt、demo.sh 的 x），最後還原 authorized_keys、刪掉 ~/report、~/demo.sh
 #
 # 需要從學員網段外部電腦手動確認的項目（密碼登入、公鑰登入、多人同時登入、bonus）見 README。
 
@@ -117,7 +117,7 @@ if [ -s "$AK" ]; then
 else
     pass "authorized_keys 是空的"
 fi
-for x in reports report error.txt; do
+for x in reports report error.txt demo.sh; do
     [ -e "$HOME_/$x" ] && fail "~/$x 不應存在（課前要清掉）" || pass "~/$x 不存在"
 done
 for f in app.log access.log db.log cron.log boot.log; do
@@ -466,9 +466,9 @@ fi
 
 # ------------------------------------------------------------------ 教學檢查點偵測
 if [ "$PROGRESS" -eq 1 ]; then
-    section "教學檢查點偵測（會動到 $U 的 authorized_keys、~/report，最後還原）"
-    if [ -s "$AK" ] || [ -e "$HOME_/report" ] || [ -e "$HOME_/reports" ]; then
-        fail "$U 的 authorized_keys 不是空的或已有 ~/report(s)，略過（避免蓋掉學員的東西；換 --user 或先清掉）"
+    section "教學檢查點偵測（會動到 $U 的 authorized_keys、~/report、~/demo.sh，最後還原）"
+    if [ -s "$AK" ] || [ -e "$HOME_/report" ] || [ -e "$HOME_/reports" ] || [ -e "$HOME_/demo.sh" ]; then
+        fail "$U 的 authorized_keys 不是空的或已有 ~/report(s)、~/demo.sh，略過（避免蓋掉學員的東西；換 --user 或先清掉）"
     else
         kd=$(mktemp -d)
         ssh-keygen -q -t ed25519 -N '' -f "$kd/id" -C lab-verify
@@ -504,8 +504,23 @@ if [ "$PROGRESS" -eq 1 ]; then
         else
             echo "  NOTE sftp 下載偵測停用（見 SSH 段），略過第 3 段 ✓ 的檢查"
         fi
+        # 第 4 段：寫腳本 → ./demo.sh 被拒 → chmod +x → 執行成功
+        [ "$(lab_json lesson script)" = none ] && pass "沒有 ~/demo.sh → 第 4 段 ·" \
+            || fail "沒有 ~/demo.sh → 第 4 段是 $(lab_json lesson script)"
+        as_user bash -c "cd ~ && echo '#!/bin/bash' > demo.sh && echo 'echo \"我是 \$(whoami)\"' >> demo.sh"
+        [ "$(lab_json lesson script)" = part ] && pass "demo.sh 寫好、沒有 x → 第 4 段 △" \
+            || fail "demo.sh 寫好、沒有 x → 第 4 段是 $(lab_json lesson script)（$(lab_json lesson_notes script)）"
+        out=$(as_user bash -c 'cd ~ && ./demo.sh' 2>&1); rc=$?
+        [ "$rc" -eq 126 ] && grep -q 'Permission denied' <<<"$out" && pass "./demo.sh → Permission denied" \
+            || fail "./demo.sh → rc=$rc：$out"
+        as_user chmod +x "$HOME_/demo.sh"
+        [ "$(lab_json lesson script)" = ok ] && pass "chmod +x 後 → 第 4 段 ✓" \
+            || fail "chmod +x 後 → 第 4 段是 $(lab_json lesson script)（$(lab_json lesson_notes script)）"
+        out=$(as_user bash -c 'cd ~ && ./demo.sh' 2>&1)
+        [ "$out" = "我是 $U" ] && pass "./demo.sh → 我是 $U" || fail "./demo.sh 輸出：$out"
+        as_user lab | grep -q '✓ 4 執行腳本' && pass "學員端 lab：第 4 段 ✓" || fail "學員端 lab：第 4 段不是 ✓"
         : > "$AK"   # 回到 setup 的初始狀態：保留 ~/.ssh 與空的 authorized_keys
-        rm -rf "$HOME_/report" "$kd"
+        rm -rf "$HOME_/report" "$HOME_/demo.sh" "$kd"
         echo "  （journal 已有 $U 的登入與下載紀錄，計分板會一直顯示 ✓，開課前請 setup.sh --reseed 重設基準時間）"
     fi
 fi

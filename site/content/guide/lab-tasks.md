@@ -14,7 +14,7 @@ description: 整堂課的五個段落、每一步要打的指令，以及要回�
 | 1 | SSH 登入 | 說出自己的 `whoami` 與 `hostname` |
 | 2 | SSH 金鑰登入 | 免密碼登入成功 |
 | 3 | 找出問題 | 筆電上有一份 `error.txt` |
-| 4 | 權限（講解） | 看懂 `ls -l` 的一行輸出 |
+| 4 | 權限與執行腳本 | `./demo.sh` 印出自己的帳號 |
 | 5 | 修復與服務 | `~/.log/app.log` 最後出現 `INFO: started` |
 
 驗收三件事：重新登入不用密碼；錯誤報告 `error.txt` 已經拉回筆電；`tail ~/.log/app.log` 看到 `started`。
@@ -128,7 +128,7 @@ scp 帳號@IP:~/reports/error.txt .
 
 文件：[ls](/commands/ls/)、[cd](/commands/cd/)、[pwd](/commands/pwd/)、[less](/commands/less/)、[grep](/commands/grep/)、[| > >>](/commands/redirection/)、[tail](/commands/tail/)、[wc](/commands/wc/)、[touch](/commands/touch/)、[mkdir](/commands/mkdir/)、[mv](/commands/mv/)、[cp](/commands/cp/)、[rm](/commands/rm/)、[scp](/commands/scp/#basics)、[家目錄與預置檔案](/environment/home/)。
 
-## 第 4 段：權限 {#part-4}
+## 第 4 段：權限與執行腳本 {#part-4}
 
 ```command
 id
@@ -137,16 +137,55 @@ ls -l /etc/shadow
 cat /etc/shadow
 ```
 
-最後一行會得到 `Permission denied`：你不是 root，也沒有 sudo。示範 `chmod +x`：
+最後一行會得到 `Permission denied`：你不是 root，也沒有 sudo。
+
+接著自己寫一個腳本並執行。先 `cd ~` 回家目錄，用第 3 段學的 `>`、`>>` 寫兩行：
 
 ```command
-touch demo.sh
-ls -l demo.sh
-chmod +x demo.sh
-ls -l demo.sh
+cd ~
+echo '#!/bin/bash' > demo.sh
+echo 'echo "我是 $(whoami)"' >> demo.sh
+cat demo.sh
 ```
 
-文件：[檔案權限](/commands/permissions/)、[id](/commands/id/)、[chmod](/commands/chmod/)。
+第一行 `#!/bin/bash` 告訴系統用 bash 來跑。外層一定要用**單引號**，`$(whoami)` 才會原封不動寫進檔案。執行看看：
+
+```command
+ls -l demo.sh
+./demo.sh
+```
+
+```output
+-rw-rw-r-- 1 lab07 lab07 36 Nov 21 14:05 demo.sh
+-bash: ./demo.sh: Permission denied
+```
+
+權限裡沒有 `x`，所以不能執行。Linux 不看副檔名，叫 `.sh` 不代表能跑。補上執行權限再試一次：
+
+```command
+chmod +x demo.sh
+ls -l demo.sh
+./demo.sh
+```
+
+```output
+-rwxrwxr-x 1 lab07 lab07 36 Nov 21 14:05 demo.sh
+我是 lab07
+```
+
+最後試試不加 `./`：
+
+```command
+demo.sh
+```
+
+```output
+demo.sh: command not found
+```
+
+shell 只會去 `PATH` 裡的目錄（例如 `/usr/bin`）找指令，目前目錄不在裡面，所以執行自己目錄下的程式要寫 `./`。另外 `bash demo.sh` 不需要 `x` 也能跑：真正被執行的是 `bash`，`demo.sh` 只是被它讀進去。
+
+文件：[檔案權限](/commands/permissions/)、[id](/commands/id/)、[chmod](/commands/chmod/#errors)、[| > >>](/commands/redirection/)。
 
 ## 第 5 段：修復與服務 {#part-5}
 
@@ -197,6 +236,7 @@ ps -u $USER
 | 輸入密碼沒反應 | 正常，密碼不會顯示，打完按 [[Enter]] |
 | `Failed to connect to bus` | [systemd 使用者服務：疑難排解](/environment/systemd-user/#troubleshooting) |
 | 重新登入仍要密碼 | [SSH 伺服器：金鑰登入失敗](/environment/sshd/#pubkey) |
+| `./demo.sh` 沒反應或 `command not found` | [chmod：常見錯誤](/commands/chmod/#errors) |
 | 改完 config 還是沒起來 | `tail ~/.log/app.log`，對照 [lab-app 錯誤訊息](/environment/lab-app/#errors) |
 | 改壞 `config.json` | `cp config.json.bak config.json` 重來 |
 | 不確定自己做完了沒 | 打 `lab`，見 [看懂進度](/commands/lab/#status) |

@@ -30,6 +30,7 @@ lab07 的進度
   ✓ 1 SSH 登入
   ✓ 2 金鑰登入      這次是用金鑰登入的
   △ 3 錯誤報告      報告做好了，記得 scp 回筆電
+  △ 4 執行腳本      demo.sh 寫好了，還沒 chmod +x
   · 5 修好 lab-app
 
 challange 闖關
@@ -49,8 +50,6 @@ challange 闖關
 | `✗` | 有問題，右邊會寫原因 |
 | `·` | 還沒開始 |
 
-第 4 段只講不做，所以沒有列出來。
-
 ## 進階 {#advanced}
 
 ### 每一項怎麼判斷 {#checkpoints}
@@ -60,6 +59,7 @@ challange 闖關
 | 1 SSH 登入 | 你能執行 `lab` 就代表登入了 | — |
 | 2 金鑰登入 | 用金鑰登入成功過（這一次或之前都算） | `△` 公鑰放好了，`exit` 再登入一次試試；`✗` `authorized_keys` 沒有公鑰或權限太寬 |
 | 3 錯誤報告 | 伺服器記錄到你用 `scp` 把 `error.txt` 拉回筆電 | `△` `~/reports/error.txt` 做好了，或 `~/error.txt` 還沒搬；`✗` 報告裡沒有最後那筆 ERROR |
+| 4 執行腳本 | 家目錄的 `demo.sh` 有內容，而且擁有者有 `x`（`chmod +x` 過） | `△` 檔案是空的，或還沒 `chmod +x` |
 | 5 修好 lab-app | `app.log` 出現過 `INFO: started` | `✗` 會寫出 lab-app 最後一次失敗的原因 |
 
 > [!NOTE]

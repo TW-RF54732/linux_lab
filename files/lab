@@ -669,11 +669,11 @@ def cmd_all(as_json):
     def yes(b):
         return OK if b else NONE
 
-    # 欄位：帳號、在線、教學關卡（LESSON_ITEMS 的順序）、│、challange 五欄、evil、備註
+    # 欄位：帳號、在線、教學關卡（LESSON_ITEMS 的順序）、│、challange 七欄、evil、備註
     lkeys = [k for k, _ in LESSON_ITEMS]
     nl = len(lkeys)
     cols = (["帳號", "在線"] + [LESSON_COLS[k] for k in lkeys]
-            + ["│", "鑰", "吃", "停", "flag", "bonus", "evil", "備註"])
+            + ["│", "x", "鑰", "吃", "停", "解", "flag", "bonus", "evil", "備註"])
     sep = 2 + nl              # 「│」那一欄
     evil_col = len(cols) - 2
     table = []
@@ -681,7 +681,8 @@ def cmd_all(as_json):
     for pw, online, lesson, ch in rows:
         stopped = ch["evil_txt"] and not ch["evil"]
         states = [lesson[k][0] for k in lkeys] + [
-            ch["key"], yes(ch["evil_txt"]), yes(stopped), ch["flag"], ch["bonus"]]
+            yes(ch["x"]), ch["key"], yes(ch["evil_txt"]), yes(stopped), yes(ch["flag_html"]),
+            ch["flag"], ch["bonus"]]
         note = next((lesson[k][1] for k in lkeys if lesson[k][0] != OK and lesson[k][1]), "")
         if not note and lesson["service"][0] == OK and lesson["service"][1] != "執行中":
             note = lesson["service"][1]
@@ -704,7 +705,7 @@ def cmd_all(as_json):
     n = len(rows)
     print(paint(f"lab 進度  {datetime.now():%H:%M:%S}  學員 {n} 人", "1")
           + ("" if journal_ok else paint("  （journal 讀不到：登入/金鑰/下載無法判斷）", "33")))
-    print(paint("✓ 完成  △ 做一半  ✗ 有問題  · 還沒做    鑰=密鑰放對 吃=flag 被吃過 停=停掉 evil-killer", "2"))
+    print(paint("✓ 完成  △ 做一半  ✗ 有問題  · 還沒做    x=decoder.sh 可執行 鑰=密鑰放對 吃=flag 被吃過 停=停掉 evil-killer 解=flag.html 在", "2"))
     print()
     print(paint(line(cols), "1"))
     for r in table:

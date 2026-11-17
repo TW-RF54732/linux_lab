@@ -178,7 +178,9 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 | 3 報告 | ✓ sftp 紀錄有讀取 `error.txt`（拉回筆電）；△ `~/report/error.txt` 或 `~/reports/error.txt` 做好了（兩個目錄名都認），或 `~/error.txt` 還沒搬 |
 | 4 腳本 | ✓ `~/.local/scripts/demo.sh` 擁有者有 `x`（只看權限，不追蹤是否真的執行過）；✗ 檔案不見或被清空 |
 | 5 服務 | ✓ setup 寫的那筆 `app is disabled` 之後出現過 `INFO: started`；✗ 之後最後一筆 ERROR 的類別 |
+| x | `~/.challange/decoder.sh` 擁有者有 `x`（用 `bash decoder.sh` 執行的人這欄會是 `·`） |
 | 鑰 / 吃 / 停 | `~/.challange/key.txt` 第一行等於密鑰 / `evil.txt` 出現過 / `evil.txt` 在且 evil-killer 已停 |
+| 解 | `~/.challange/flag.html` 目前存在（被 evil-killer 吃掉就變回 `·`，停掉牠再解一次才會留住） |
 | flag / bonus | `~/.lab/flag`、`~/.lab/bonus` 和答案相同 |
 | evil | evil-killer 正在跑 |
 

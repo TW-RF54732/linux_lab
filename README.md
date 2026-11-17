@@ -76,7 +76,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
    - 真的啟動一次 `lab-app`，讓它自己寫出 `ERROR: app is disabled …` 並以 78 結束
    - 確認服務為 **failed**、`app.log` 最後一筆是該 ERROR
 
-   已有預置檔的帳號會略過；加 `--reseed` 會全部重新產生。
+   已有預置檔的帳號會略過；加 `--reseed` 會全部重新產生；只想還原某幾個帳號用 `--reseed-user lab05`（可重複指定）。
 
 ## 和規格不同或補充的地方
 
@@ -87,6 +87,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 | `True`、`yes` 等未加引號的字 | 嚴格來說是 JSON 語法錯誤 | 回報 `"enable" must be true or false (boolean)` | 與講師版第 5 段的表一致，對學員比較有用 |
 | JSON 錯誤行號 | `line N` | 錯在檔尾（少右括號）時指向最後一行有內容的行 | 單行檔案不會出現「line 2」 |
 | `~/.config` 其他目錄 | ≥5 個、≥2 個有 `config.json` | 7 個，3 個有 `config.json`（其中 `chat-bot` 也是 `"enable": false`） | 逼學員看路徑判斷；目錄名都不含 `app`，`ls ~/.config \| grep app` 只有一筆 |
+| root SSH | `PermitRootLogin no`，root 不能 SSH | `lab.conf` 的 `LAB_ROOT_SSH=1` 時改為 `prohibit-password`（僅金鑰），並把 root 加進 `labadmins`；設 0 則回到規格 | 講師用金鑰直接 `ssh root@CT` 管理；密碼登入 root 仍然不行 |
 | 其他 log | 不含相關 ERROR | 完全不含大寫 `ERROR` | `grep -r ERROR ~/.log` 時只會指向 app.log |
 
 app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決的舊 ERROR（每筆後面有恢復訊息），最後一筆是 `app is disabled`。同一個 `LAB_SEED` 產生的內容完全相同，只有時間戳跟著產生時間平移。
@@ -134,4 +135,4 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 /root/linux_lab/setup.sh --reseed
 ```
 
-注意 `--reseed` 只重新產生 `~/.log`、`~/.config` 與服務狀態，**不會**刪掉學員上一堂課留下的 `~/.ssh`、`~/reports`、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。
+注意 `--reseed`／`--reseed-user` 只重新產生 `~/.log`、`~/.config` 與服務狀態，**不會**刪掉學員上一堂課留下的 `~/.ssh`、`~/reports`、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。

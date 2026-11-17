@@ -4,6 +4,7 @@
 # 用法（在 CT 內以 root 執行）：
 #   ./setup.sh             # 部署；已存在的學員帳號不會被改動預置檔
 #   ./setup.sh --reseed    # 另外把所有學員的預置檔與服務狀態重新產生到初始值
+#   ./setup.sh --reseed-user lab05 [--reseed-user lab06 ...]   # 只還原指定學員
 #
 # 可以重複執行（idempotent）。設定在同目錄的 lab.conf。
 
@@ -14,12 +15,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/lab.conf"
 
 RESEED=0
-for arg in "$@"; do
-    case "$arg" in
+RESEED_USERS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
         --reseed) RESEED=1 ;;
-        -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
-        *) echo "unknown option: $arg" >&2; exit 2 ;;
+        --reseed-user)
+            [ $# -ge 2 ] || { echo "--reseed-user 需要帳號名稱" >&2; exit 2; }
+            RESEED_USERS+=("$2"); shift ;;
+        --reseed-user=*) RESEED_USERS+=("${1#*=}") ;;
+        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
+    shift
 done
 
 STUDENT_GROUP=labusers
@@ -131,6 +138,12 @@ ok "TasksMax=$LAB_TASKS_MAX MemoryMax=$LAB_MEMORY_MAX"
 # ------------------------------------------------------------------ SSH
 say "SSH 設定"
 SSHD_DROPIN=/etc/ssh/sshd_config.d/00-lab.conf
+if [ "${LAB_ROOT_SSH:-0}" = 1 ]; then
+    ROOT_LOGIN=prohibit-password
+    usermod -aG "$ADMIN_GROUP" root
+else
+    ROOT_LOGIN=no
+fi
 grep -Eq '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config \
     || die "/etc/ssh/sshd_config 沒有 Include sshd_config.d，請手動檢查"
 cat > "$SSHD_DROPIN" <<EOF
@@ -140,7 +153,7 @@ UsePAM yes
 PasswordAuthentication yes
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes
-PermitRootLogin no
+PermitRootLogin $ROOT_LOGIN
 AllowGroups $STUDENT_GROUP $ADMIN_GROUP
 MaxStartups $LAB_MAX_STARTUPS
 EOF
@@ -150,7 +163,7 @@ ssh-keygen -A >/dev/null 2>&1   # 補齊缺少的 host key（CT 範本常常沒�
 ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1 || die "沒有 SSH host key，ssh-keygen -A 失敗"
 sshd -t || { rm -f "$SSHD_DROPIN"; die "sshd 設定檢查失敗，已移除 $SSHD_DROPIN"; }
 eff=$(sshd -T 2>/dev/null)
-for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin no" \
+for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin $ROOT_LOGIN" \
           "usepam yes" "maxstartups $LAB_MAX_STARTUPS"; do
     grep -qx "$kv" <<<"$eff" && ok "$kv" || die "sshd 有效設定不是「$kv」，可能被其他設定檔蓋掉：$(grep "^${kv%% *} " <<<"$eff")"
 done
@@ -250,12 +263,22 @@ init_user() {
     return 0
 }
 
+for r in "${RESEED_USERS[@]}"; do
+    found=0
+    for i in $(seq 1 "$LAB_COUNT"); do
+        [ "$(student_name "$i")" = "$r" ] && found=1
+    done
+    [ "$found" -eq 1 ] || die "--reseed-user：$r 不是學員帳號（$(student_name 1) … $(student_name "$LAB_COUNT")）"
+done
+
 say "預置檔與初始狀態"
 fail=0
 for i in $(seq 1 "$LAB_COUNT"); do
     u=$(student_name "$i")
     home=$(getent passwd "$u" | cut -d: -f6)
-    if [ "$RESEED" -eq 1 ] || [ ! -f "$home/.log/app.log" ] || [ ! -f "$home/.config/app/config.json" ]; then
+    reseed_this=$RESEED
+    for r in "${RESEED_USERS[@]}"; do [ "$r" = "$u" ] && reseed_this=1; done
+    if [ "$reseed_this" -eq 1 ] || [ ! -f "$home/.log/app.log" ] || [ ! -f "$home/.config/app/config.json" ]; then
         if init_user "$u"; then ok "$u 初始化完成"; else fail=$((fail + 1)); fi
     else
         loginctl enable-linger "$u"

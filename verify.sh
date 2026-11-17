@@ -129,7 +129,7 @@ fi
 # ------------------------------------------------------------------ SSH
 section "SSH"
 eff=$(sshd -T 2>/dev/null)
-for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin no" "usepam yes"; do
+for kv in "passwordauthentication yes" "pubkeyauthentication yes" "permitrootlogin $([ "${LAB_ROOT_SSH:-0}" = 1 ] && echo prohibit-password || echo no)" "usepam yes"; do
     grep -qx "$kv" <<<"$eff" && pass "$kv" || fail "$kv（目前：$(grep "^${kv%% *} " <<<"$eff")）"
 done
 grep -qi "^allowgroups .*labusers" <<<"$eff" && pass "$(grep -i '^allowgroups' <<<"$eff")" || fail "AllowGroups 未含 labusers"

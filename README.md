@@ -84,7 +84,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 
    - 寫入教學檢查點的基準時間 `/var/lib/lab/lesson/labNN`（`lab --all` 只看這之後的登入與下載紀錄）
 
-   已有預置檔的帳號會略過；加 `--reseed` 會全部重新產生；只想還原某幾個帳號用 `--reseed-user lab05`（可重複指定）。
+   已有預置檔的帳號會略過；加 `--reseed` 會全部重新產生；只想還原某幾個帳號用 `--reseed-user lab05`（可重複指定）。要連家目錄裡學員自己放的東西一起清掉，用 `--wipe-user lab05`（可重複指定）：刪掉帳號重建，密碼沿用密碼名單裡的原密碼。
 8. challange：安裝 `evil-killer`、`lab`、`lab-challange`，產生 `/lab/key.txt`（已存在就只檢查格式）；
    寫入並啟動 `/etc/systemd/system/lab-progress.service`（學員端進度快取）；
    每位學員產生 `~/.challange/README.txt`、`~/.challange/decoder.sh`（444）與答案。evil-killer 先停著。
@@ -190,4 +190,4 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 /root/linux_lab/setup.sh --reseed
 ```
 
-注意 `--reseed`／`--reseed-user` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**清空學員上一堂課放進 `~/.ssh/authorized_keys` 的公鑰（`verify.sh` 會提醒），也不會刪掉 `~/report`（或 `~/reports`）、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。
+注意 `--reseed`／`--reseed-user` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**清空學員上一堂課放進 `~/.ssh/authorized_keys` 的公鑰（`verify.sh` 會提醒），也不會刪掉 `~/report`（或 `~/reports`）、`~/error.txt` 等檔案；要完整還原單一學員用 `setup.sh --wipe-user labNN`：先從密碼名單取出原密碼，停掉該學員所有程序，刪除帳號與家目錄、`/tmp`／`/var/tmp`／`/dev/shm` 裡屬於他的檔案、crontab、`/var/lib/lab` 底下的狀態檔，再用原密碼重建並重新產生預置檔與 challange（evil-killer 不會啟動，闖關中要再 `sudo lab --start`）。名單裡找不到該帳號就中止，不會刪。

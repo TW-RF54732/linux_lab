@@ -4,7 +4,9 @@
 # 用法（在 CT 內以 root 執行）：
 #   ./setup.sh             # 部署；已存在的學員帳號不會被改動預置檔
 #   ./setup.sh --reseed    # 另外把所有學員的預置檔、服務狀態與 challange 重新產生到初始值
-#   ./setup.sh --reseed-user lab05 [--reseed-user lab06 ...]   # 只還原指定學員
+#   ./setup.sh --reseed-user lab05 [--reseed-user lab06 ...]   # 只還原指定學員（預置檔、服務狀態、challange）
+#   ./setup.sh --wipe-user lab05 [--wipe-user lab06 ...]       # 刪掉帳號整個重建（保留原密碼），
+#                                                               # 家目錄、/tmp 殘留、crontab 全部清掉
 #
 # 可以重複執行（idempotent）。設定在同目錄的 lab.conf。
 
@@ -20,6 +22,7 @@ source "$HERE/lab.conf"
 
 RESEED=0
 RESEED_USERS=()
+WIPE_USERS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --reseed) RESEED=1 ;;
@@ -27,7 +30,11 @@ while [ $# -gt 0 ]; do
             [ $# -ge 2 ] || { echo "--reseed-user 需要帳號名稱" >&2; exit 2; }
             RESEED_USERS+=("$2"); shift ;;
         --reseed-user=*) RESEED_USERS+=("${1#*=}") ;;
-        -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+        --wipe-user)
+            [ $# -ge 2 ] || { echo "--wipe-user 需要帳號名稱" >&2; exit 2; }
+            WIPE_USERS+=("$2"); shift ;;
+        --wipe-user=*) WIPE_USERS+=("${1#*=}") ;;
+        -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -73,6 +80,18 @@ for f in files/lab-app files/lab-seed files/lab-app.service \
          files/evil-killer files/evil-killer.service files/lab files/lab-challange; do
     [ -f "$HERE/$f" ] || die "缺少 $f"
     if grep -q $'\r' "$HERE/$f"; then die "$f 是 CRLF 換行，請轉成 LF（例如 sed -i 's/\\r\$//' $f）"; fi
+done
+
+is_student() {
+    local i
+    for i in $(seq 1 "$LAB_COUNT"); do [ "$(student_name "$i")" = "$1" ] && return 0; done
+    return 1
+}
+for r in "${RESEED_USERS[@]}"; do
+    is_student "$r" || die "--reseed-user：$r 不是學員帳號（$(student_name 1) … $(student_name "$LAB_COUNT")）"
+done
+for r in "${WIPE_USERS[@]}"; do
+    is_student "$r" || die "--wipe-user：$r 不是學員帳號（$(student_name 1) … $(student_name "$LAB_COUNT")）"
 done
 
 if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
@@ -257,6 +276,39 @@ umask 077
 chmod 600 "$LAB_ROSTER"
 umask 022
 
+# --wipe-user：先從密碼名單取出原密碼，再把帳號連同家目錄、/tmp 殘留、crontab、lab 狀態檔一起刪掉，
+# 下面的建帳號流程會把它當新帳號重建（用回原密碼），預置檔與 challange 也因為檔案不存在而重新產生。
+declare -A KEEP_PW=()
+for u in "${WIPE_USERS[@]}"; do
+    [ -n "${KEEP_PW[$u]+x}" ] && continue   # 重複指定
+    if ! id "$u" >/dev/null 2>&1; then
+        warn "--wipe-user：$u 不存在，直接當新帳號建立"
+        continue
+    fi
+    pw=$(awk -F, -v u="$u" '$1 == u { sub(/^[^,]*,/, ""); print; exit }' "$LAB_ROSTER")
+    [ -n "$pw" ] || die "--wipe-user：密碼名單 $LAB_ROSTER 裡沒有 $u，無法保留原密碼（不刪帳號）"
+    KEEP_PW[$u]=$pw
+    uid=$(id -u "$u")
+    home=$(getent passwd "$u" | cut -d: -f6)
+    loginctl disable-linger "$u" 2>/dev/null || true
+    loginctl terminate-user "$u" 2>/dev/null || true
+    systemctl stop "user@$uid.service" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+        pgrep -u "$uid" >/dev/null || break
+        pkill -KILL -u "$uid" 2>/dev/null || true
+        sleep 0.5
+    done
+    pgrep -u "$uid" >/dev/null && die "--wipe-user：$u 還有程序殺不掉（pgrep -u $u -a）"
+    find /tmp /var/tmp /dev/shm -xdev -user "$uid" -delete 2>/dev/null || true
+    crontab -r -u "$u" 2>/dev/null || true
+    userdel -r "$u" 2>/dev/null || true   # 沒有 mail spool 等警告不影響
+    id "$u" >/dev/null 2>&1 && die "--wipe-user：$u 刪不掉（userdel -r $u 看錯誤訊息）"
+    case "$home" in /home/?*) rm -rf -- "$home" ;; esac   # userdel 沒刪乾淨的家目錄
+    rm -f "/var/lib/lab/answers/$u.json" "/var/lib/lab/users/$u.json" \
+          "/var/lib/lab/progress/$u.json" "$LESSON_DIR/$u"
+    ok "$u 已刪除（家目錄、/tmp 殘留、crontab、lab 狀態檔），稍後用原密碼重建"
+done
+
 NEW_USERS=()
 for i in $(seq 1 "$LAB_COUNT"); do
     u=$(student_name "$i")
@@ -264,7 +316,7 @@ for i in $(seq 1 "$LAB_COUNT"); do
         usermod -aG "$STUDENT_GROUP" "$u"
     else
         useradd -m -s /bin/bash -U -G "$STUDENT_GROUP" "$u"
-        pw=$(gen_password)
+        pw=${KEEP_PW[$u]:-$(gen_password)}
         echo "$u:$pw" | chpasswd
         sed -i "/^$u,/d" "$LAB_ROSTER"
         echo "$u,$pw" >> "$LAB_ROSTER"
@@ -336,14 +388,6 @@ init_user() {
     return 0
 }
 
-for r in "${RESEED_USERS[@]}"; do
-    found=0
-    for i in $(seq 1 "$LAB_COUNT"); do
-        [ "$(student_name "$i")" = "$r" ] && found=1
-    done
-    [ "$found" -eq 1 ] || die "--reseed-user：$r 不是學員帳號（$(student_name 1) … $(student_name "$LAB_COUNT")）"
-done
-
 say "預置檔與初始狀態"
 fail=0
 for i in $(seq 1 "$LAB_COUNT"); do
@@ -367,7 +411,9 @@ say "challange 闖關檔案"
 for i in $(seq 1 "$LAB_COUNT"); do
     u=$(student_name "$i")
     home=$(getent passwd "$u" | cut -d: -f6)
-    if [ "$RESEED" -eq 1 ] || [ ! -f "$home/.challange/decoder.sh" ] \
+    reseed_this=$RESEED
+    for r in "${RESEED_USERS[@]}"; do [ "$r" = "$u" ] && reseed_this=1; done
+    if [ "$reseed_this" -eq 1 ] || [ ! -f "$home/.challange/decoder.sh" ] \
        || [ ! -f "/var/lib/lab/answers/$u.json" ] || [ ! -f "/var/lib/lab/users/$u.json" ]; then
         user_systemctl "$u" disable --now evil-killer.service >/dev/null 2>&1 || true
         user_systemctl "$u" reset-failed evil-killer.service >/dev/null 2>&1 || true

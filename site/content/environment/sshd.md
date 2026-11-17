@@ -14,7 +14,7 @@ ssh 帳號@IP
 | 登入方式 | 說明 |
 | --- | --- |
 | 密碼 | 第 1 段使用。輸入時畫面不會顯示任何字元 |
-| 公鑰 | 第 3 段設定，之後不用輸入密碼 |
+| 公鑰 | 第 2 段設定，之後不用輸入密碼 |
 | root | 不能登入 |
 
 ### 第一次連線 {#fingerprint}
@@ -85,4 +85,4 @@ cat /etc/ssh/sshd_config.d/00-lab.conf
 
 ## 範例 {#examples}
 
-第 3 段的完整流程見 [課程任務地圖](/guide/lab-tasks/#part-3)。
+第 2 段的完整流程見 [課程任務地圖](/guide/lab-tasks/#part-2)。

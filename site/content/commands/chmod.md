@@ -44,7 +44,7 @@ chmod 700 ~/.ssh
 chmod 600 ~/.ssh/authorized_keys
 ```
 
-第 3 段：設定 SSH 要求的權限。
+第 2 段：設定 SSH 要求的權限。
 
 ```command
 touch demo.sh

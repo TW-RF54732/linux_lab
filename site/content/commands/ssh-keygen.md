@@ -47,4 +47,4 @@ cat ~/.ssh/id_ed25519.pub
 1. 產生金鑰。
 2. 看公鑰內容，是一行以 `ssh-ed25519` 開頭的文字。
 
-接著用 [scp](/commands/scp/) 把 `.pub` 傳到伺服器，完整流程見 [課程任務地圖](/guide/lab-tasks/#part-3)。
+接著用 [scp](/commands/scp/) 把 `.pub` 傳到伺服器，完整流程見 [課程任務地圖](/guide/lab-tasks/#part-2)。

@@ -31,7 +31,7 @@ Connection to 192.168.10.50 closed.
 
 ## 範例 {#examples}
 
-第 3 段設定好金鑰後：
+第 2 段設定好金鑰後：
 
 ```command
 exit

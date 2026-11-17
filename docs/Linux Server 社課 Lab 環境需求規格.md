@@ -48,7 +48,7 @@ Nov 16, 2026 · @lolLeo
 | 設定 | 值 | 原因 |
 | --- | --- | --- |
 | `PasswordAuthentication` | `yes` | 第 1 段用密碼登入 |
-| `PubkeyAuthentication` | `yes` | 第 3 段公鑰登入 |
+| `PubkeyAuthentication` | `yes` | 第 2 段公鑰登入 |
 | `PermitRootLogin` | `no` | 避免 root 被嘗試 |
 | `AllowGroups` | `labusers` | 只允許學員與管理者登入 |
 | `MaxStartups` | 調高，例如 `50:30:100` | 預設值在多人同時連線時可能拒絕部分連線，上課前實測 |
@@ -56,7 +56,7 @@ Nov 16, 2026 · @lolLeo
 其他注意事項：
 
 - 公鑰登入會檢查權限：`~/.ssh` 的群組與其他人不可寫，家目錄也不可被其他人寫入。`authorized_keys` 用 `>>` 建立的 644 可以直接使用。
-- `~/.ssh` 不預建，讓學員在第 3 段自己 `mkdir -p`。
+- `~/.ssh` 不預建，讓學員在第 2 段自己 `mkdir -p`。
 - 若安裝了 fail2ban，教室共用同一個對外 IP，打錯密碼可能連坐整間教室，需把教室網段加入白名單或暫停。
 
 ## 預置檔案
@@ -65,7 +65,7 @@ Nov 16, 2026 · @lolLeo
 
 | 路徑 | 內容 | 用途 |
 | --- | --- | --- |
-| `~/.log/app.log` | 約 2000 行，以 INFO 和 WARN 為主，夠雜數筆已解決的舊 ERROR；最後一筆是 `ERROR: app is disabled, set "enable" to true in app/config.json` | 第 2 段找錯誤，第 5 段驗證 |
+| `~/.log/app.log` | 約 2000 行，以 INFO 和 WARN 為主，夠雜數筆已解決的舊 ERROR；最後一筆是 `ERROR: app is disabled, set "enable" to true in app/config.json` | 第 3 段找錯誤，第 5 段驗證 |
 | `~/.log/` 其他 log | `access.log`、`db.log`、`cron.log`、`boot.log`，各數百到數千行雜訊，不含與本題相關的 ERROR | 讓 `ls -lh` 有東西可看，體驗「要挑對檔」 |
 | `~/.config/app/config.json` | `{"enable": false}` | 第 5 段要修的設定檔 |
 | `~/.config/` 其他目錄 | 至少 5 個無關程式的目錄，其中至少 2 個也有 `config.json` | 讓 `find ~/.config -name config.json` 有多筆結果，靠路徑判斷 |

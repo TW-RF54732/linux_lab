@@ -210,11 +210,12 @@ def journal_events(since):
 def check_authorized_keys(home):
     ssh = home / ".ssh"
     ak = ssh / "authorized_keys"
-    if not ak.exists():
+    text = read_text(ak) if ak.exists() else None
+    # setup 會預建空的 authorized_keys，空檔和不存在一樣當作「還沒放」
+    if text is None or not text.strip():
         if (home / "id_ed25519.pub").exists() or list(home.glob("*.pub")):
             return PART, "公鑰傳上來了，還沒放進 ~/.ssh/authorized_keys"
         return NONE, ""
-    text = read_text(ak) or ""
     if not re.search(r"^\s*(ssh-(ed25519|rsa|dss)|ecdsa-sha2-|sk-)", text, re.M):
         return BAD, "authorized_keys 裡沒有公鑰（被 > 蓋掉了？）"
     for p, what in ((home, "家目錄"), (ssh, "~/.ssh"), (ak, "authorized_keys")):
@@ -237,7 +238,7 @@ def check_report(home):
     if found:
         return BAD, f"{found[0]}/error.txt 沒有最後那筆 ERROR"
     if (home / "error.txt").exists():
-        return PART, "error.txt 還沒搬到 ~/report"
+        return PART, "error.txt 還沒搬到 ~/reports"
     return NONE, ""
 
 

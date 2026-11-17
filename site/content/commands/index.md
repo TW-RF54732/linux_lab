@@ -9,6 +9,7 @@ description: 課堂用到的所有指令。每一頁都先講常用寫法，再�
 
 | 類別 | 指令 | 用途 |
 | --- | --- | --- |
+| 課堂工具 | [lab](/commands/lab/) | 看進度、拿提示、提交 challange 答案 |
 | 登入與身分 | [ssh](/commands/ssh/) | 遠端登入伺服器 |
 | | [whoami](/commands/whoami/) | 我是誰 |
 | | [hostname](/commands/hostname/) | 這台電腦叫什麼 |
@@ -29,6 +30,7 @@ description: 課堂用到的所有指令。每一頁都先講常用寫法，再�
 | | [cp](/commands/cp/) | 複製 |
 | | [mv](/commands/mv/) | 移動或改名 |
 | | [rm](/commands/rm/) | 刪除 |
+| | [ln](/commands/ln/) | 建立連結（捷徑） |
 | 編輯 | [nano](/commands/nano/) | 文字編輯器 |
 | 傳輸與金鑰 | [ssh-keygen](/commands/ssh-keygen/) | 產生 SSH 金鑰 |
 | | [scp](/commands/scp/) | 在電腦之間傳檔案 |

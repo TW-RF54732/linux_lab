@@ -16,7 +16,9 @@ description: 你登入的 lab 伺服器長什麼樣子，以及你在上面能�
 | 你的家目錄 | `/home/帳號`，也就是 `~` |
 | 預置的 log | `~/.log/`，見 [家目錄與預置檔案](/environment/home/) |
 | 預置的設定 | `~/.config/` |
-| 你的服務 | `lab-app`，見 [lab-app 服務](/environment/lab-app/) |
+| 你的服務 | `lab-app`，見 [lab-app 服務](/environment/lab-app/)；闖關時還有 `evil-killer` |
+| 看進度 | 隨時打 `lab`，見 [lab 指令](/commands/lab/) |
+| 課後闖關 | `~/.challange/`，見 [challange 闖關](/guide/challange/) |
 
 ### 能做與不能做 {#boundaries}
 
@@ -47,6 +49,10 @@ description: 你登入的 lab 伺服器長什麼樣子，以及你在上面能�
 | `/opt/lab/lab-app` | `lab-app` 程式本體，所有人共用、唯讀 |
 | `/etc/systemd/user/lab-app.service` | `lab-app` 的服務定義 |
 | `/etc/ssh/sshd_config.d/00-lab.conf` | lab 的 SSH 設定 |
+| `/usr/local/bin/lab` | [lab 指令](/commands/lab/)，看進度與提交答案 |
+| `/lab/key.txt` | challange 的密鑰，所有人可讀、不能改 |
+| `/opt/lab/evil-killer` | challange 的搗蛋鬼程式 |
+| `/etc/systemd/user/evil-killer.service` | `evil-killer` 的服務定義 |
 
 ### 資源限制 {#limits}
 
@@ -66,4 +72,4 @@ ls -la ~
 2. 我在哪台機器。
 3. 我屬於哪些群組（沒有 `sudo`）。
 4. 作業系統版本。
-5. 家目錄裡有什麼，包含隱藏的 `.log` 與 `.config`。
+5. 家目錄裡有什麼，包含隱藏的 `.log`、`.config` 與 `.challange`。

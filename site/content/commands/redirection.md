@@ -71,7 +71,7 @@ wc -l ~/error.txt
 > [!WARNING]
 > `>` 會直接清掉原本的內容，**沒辦法復原**。
 >
-> 第 3 段把公鑰加進 `authorized_keys` 一定要用 `>>`：
+> 第 2 段把公鑰加進 `authorized_keys` 一定要用 `>>`：
 > `cat ~/id_ed25519.pub >> ~/.ssh/authorized_keys`
 > 用 `>` 會把裡面原有的其他公鑰全部蓋掉。
 

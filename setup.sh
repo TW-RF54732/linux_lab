@@ -226,8 +226,19 @@ for i in $(seq 1 "$LAB_COUNT"); do
     home=$(getent passwd "$u" | cut -d: -f6)
     chown "$u:$u" "$home"
     chmod 750 "$home"
+    # 預建 ~/.ssh（700）與空的 authorized_keys（600），學員第 2 段只要把公鑰 >> 進去。
+    # 已經有的不清空（裡面可能是學員的公鑰），只修正擁有者與權限；是符號連結就不碰。
+    ssh_dir="$home/.ssh"
+    if [ -L "$ssh_dir" ] || [ -L "$ssh_dir/authorized_keys" ]; then
+        warn "$u 的 ~/.ssh 或 authorized_keys 是符號連結，略過"
+    else
+        install -d -m 700 -o "$u" -g "$u" "$ssh_dir"
+        [ -e "$ssh_dir/authorized_keys" ] || install -m 600 -o "$u" -g "$u" /dev/null "$ssh_dir/authorized_keys"
+        chown "$u:$u" "$ssh_dir/authorized_keys"
+        chmod 600 "$ssh_dir/authorized_keys"
+    fi
 done
-ok "共 $LAB_COUNT 個帳號，新建 ${#NEW_USERS[@]} 個；密碼名單：$LAB_ROSTER"
+ok "共 $LAB_COUNT 個帳號，新建 ${#NEW_USERS[@]} 個；密碼名單：$LAB_ROSTER；已預建 ~/.ssh/authorized_keys"
 
 # ------------------------------------------------------------------ 預置檔與初始狀態
 # 初始狀態：lab-app 為 failed，app.log 最後一筆是 app is disabled 的 ERROR。

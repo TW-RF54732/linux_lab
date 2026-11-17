@@ -55,7 +55,7 @@ Spec: `docs/Linux Server 社課 challange 闖關規格.md` (deviations tabled in
 - **Never put the literal flag marker (`flag` + `{`) in anything placed under a student's home** (decoder.sh, README.txt) — evil-killer eats it. Use `flag[{]` in greps.
 - `files/lab` (`/usr/local/bin/lab`): student status/hint/flag/bonus; root `--start/--stop/--all [--json]/--reset`. Teaching checkpoints: segment 1/2 from journal `Accepted …` lines, segment 3 download from `internal-sftp -l INFO` open lines (sshd drop-in), segment 5 from app.log lines after the first `ERROR: app is disabled`. Baseline time per student in `/var/lib/lab/lesson/<u>` (written by `setup.sh init_user`).
 
-Cross-file coupling: decoder messages and evil.txt text ↔ `verify.sh --challange`; `lab`'s `APP_ERRORS`/`SEED_ERROR` ↔ lab-app ERROR strings; `lab --all --json` keys ↔ `verify.sh` `lab_json`; `~/.challange` name appears in builder, evil-killer, lab, setup, verify.
+Cross-file coupling: decoder messages and evil.txt text ↔ `verify.sh --challange` and `site/content/guide/challange.md`; `lab` student output/hints/error messages ↔ `site/content/commands/lab.md`; `lab`'s `APP_ERRORS`/`SEED_ERROR` ↔ lab-app ERROR strings; `lab --all --json` keys ↔ `verify.sh` `lab_json`; `~/.challange` name appears in builder, evil-killer, lab, setup, verify.
 
 LXC gotchas (details in README): without `nesting=1`, logind/`user@.service` fail ("Failed to connect to bus"); testing as a student must use `ssh labNN@localhost` or set `XDG_RUNTIME_DIR` (scripts use `runuser` + explicit `XDG_RUNTIME_DIR`).
 

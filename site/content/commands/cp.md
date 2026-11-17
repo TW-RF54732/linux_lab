@@ -41,7 +41,7 @@ cp -r ~/.config/app ~/app-backup
 
 1. 第 5 段：改設定前先備份。
 2. 改壞了，用備份蓋回去。
-3. 第 2 段：練習複製。
+3. 第 3 段：練習複製。
 4. 備份整個目錄。
 
 複製目錄忘了加 `-r` 會看到 `-r not specified; omitting directory`。

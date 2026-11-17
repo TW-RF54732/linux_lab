@@ -37,4 +37,4 @@ cat ~/id_ed25519.pub >> ~/.ssh/authorized_keys
 
 1. 看設定檔目前的內容。
 2. 加行號，對照 `invalid JSON ... (line N)` 錯誤。
-3. 第 3 段：把公鑰內容**追加**到 `authorized_keys`，見 [| > >>](/commands/redirection/)。
+3. 第 2 段：把公鑰內容**追加**到 `authorized_keys`，見 [| > >>](/commands/redirection/)。

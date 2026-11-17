@@ -8,7 +8,7 @@
 #   ./verify.sh --fork-test          # 另外在測試帳號實際超過 TasksMax，確認只影響自己
 #   ./verify.sh --challange          # 另外跑完整闖關（啟動 evil-killer、解密、被吃、停止、提交），最後 lab --reset 還原；
 #                                    #   結尾會跑一次 lab --stop（全部學員），請在課前執行
-#   ./verify.sh --progress           # 另外測 lab --all 的教學檢查點偵測（金鑰登入、下載 error.txt），最後清掉 ~/.ssh、~/report
+#   ./verify.sh --progress           # 另外測 lab --all 的教學檢查點偵測（金鑰登入、下載 error.txt），最後還原 authorized_keys、刪掉 ~/report
 #
 # 需要從學員網段外部電腦手動確認的項目（密碼登入、公鑰登入、多人同時登入、bonus）見 README。
 
@@ -105,7 +105,15 @@ for d in .log .config; do
     check "~/$d 存在、擁有者 $U、權限 755" \
         bash -c "[ \"\$(stat -c '%U %a' '$HOME_/$d')\" = '$U 755' ]"
 done
-for x in .ssh reports report error.txt; do
+AK="$HOME_/.ssh/authorized_keys"
+check "~/.ssh 存在、擁有者 $U、權限 700" bash -c "[ \"\$(stat -c '%U %a' '$HOME_/.ssh')\" = '$U 700' ]"
+check "~/.ssh/authorized_keys 存在、擁有者 $U、權限 600" bash -c "[ \"\$(stat -c '%U %a' '$AK')\" = '$U 600' ]"
+if [ -s "$AK" ]; then
+    fail "authorized_keys 不是空的（$(grep -c . "$AK") 行；上一堂課的公鑰要清掉）"
+else
+    pass "authorized_keys 是空的"
+fi
+for x in reports report error.txt; do
     [ -e "$HOME_/$x" ] && fail "~/$x 不應存在（課前要清掉）" || pass "~/$x 不存在"
 done
 for f in app.log access.log db.log cron.log boot.log; do
@@ -447,14 +455,17 @@ fi
 
 # ------------------------------------------------------------------ 教學檢查點偵測
 if [ "$PROGRESS" -eq 1 ]; then
-    section "教學檢查點偵測（會動到 $U 的 ~/.ssh、~/report，最後刪掉）"
-    if [ -e "$HOME_/.ssh" ] || [ -e "$HOME_/report" ] || [ -e "$HOME_/reports" ]; then
-        fail "$U 已有 ~/.ssh、~/report 或 ~/reports，略過（避免蓋掉學員的東西；先 setup.sh --reseed 或換 --user）"
+    section "教學檢查點偵測（會動到 $U 的 authorized_keys、~/report，最後還原）"
+    if [ -s "$AK" ] || [ -e "$HOME_/report" ] || [ -e "$HOME_/reports" ]; then
+        fail "$U 的 authorized_keys 不是空的或已有 ~/report(s)，略過（避免蓋掉學員的東西；換 --user 或先清掉）"
     else
         kd=$(mktemp -d)
         ssh-keygen -q -t ed25519 -N '' -f "$kd/id" -C lab-verify
+        [ "$(lab_json lesson key)" = none ] && pass "空的 authorized_keys → 第 2 段 ·" \
+            || fail "空的 authorized_keys → 第 2 段是 $(lab_json lesson key)（$(lab_json lesson_notes key)）"
         install -d -m 700 -o "$U" -g "$U" "$HOME_/.ssh"
-        install -m 600 -o "$U" -g "$U" "$kd/id.pub" "$HOME_/.ssh/authorized_keys"
+        cat "$kd/id.pub" >> "$AK"
+        chown "$U:$U" "$AK"; chmod 600 "$AK"
         [ "$(lab_json lesson key)" = part ] && pass "放好 authorized_keys → 第 2 段 △" \
             || fail "放好 authorized_keys → 第 2 段是 $(lab_json lesson key)（$(lab_json lesson_notes key)）"
         SO=(-i "$kd/id" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
@@ -475,7 +486,8 @@ if [ "$PROGRESS" -eq 1 ]; then
         else
             echo "  NOTE sftp 下載偵測停用（見 SSH 段），略過第 3 段 ✓ 的檢查"
         fi
-        rm -rf "$HOME_/.ssh" "$HOME_/report" "$kd"
+        : > "$AK"   # 回到 setup 的初始狀態：保留 ~/.ssh 與空的 authorized_keys
+        rm -rf "$HOME_/report" "$kd"
         echo "  （journal 已有 $U 的登入與下載紀錄，計分板會一直顯示 ✓，開課前請 setup.sh --reseed 重設基準時間）"
     fi
 fi

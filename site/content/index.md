@@ -1,7 +1,7 @@
 ---
 title: Linux Lab 文件
 nav: 首頁
-description: Linux Server 社課的快速上手文件：課堂用到的指令怎麼用，以及 lab 伺服器與 lab-app 服務的說明。
+description: Linux Server 社課的快速上手文件：課堂用到的指令怎麼用、lab 伺服器與 lab-app 服務的說明，以及 challange 闖關與 lab 指令。
 ---
 
 ## 這份文件怎麼用 {#overview}
@@ -17,7 +17,8 @@ description: Linux Server 社課的快速上手文件：課堂用到的指令怎
 ## 從哪裡開始 {#start}
 
 - 第一次來：先看 [如何查指令](/guide/reading-docs/)，學會自己找答案。
-- 上課時：照 [課程任務地圖](/guide/lab-tasks/) 走。
+- 上課時：照 [課程任務地圖](/guide/lab-tasks/) 走，隨時打 `lab` 看自己的進度（見 [lab 指令](/commands/lab/)）。
+- 課後闖關：看 [challange 闖關](/guide/challange/)。
 - 想知道伺服器上有什麼：看 [Lab 環境總覽](/environment/)。
 
 > [!TIP]

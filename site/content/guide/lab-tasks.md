@@ -12,14 +12,17 @@ description: 整堂課的五個段落、每一步要打的指令，以及要回�
 | 段 | 主題 | 你的產出 |
 | --- | --- | --- |
 | 1 | SSH 登入 | 說出自己的 `whoami` 與 `hostname` |
-| 2 | 找出問題 | `~/reports/error.txt` |
-| 3 | SSH 金鑰登入 | 免密碼登入成功 |
+| 2 | SSH 金鑰登入 | 免密碼登入成功 |
+| 3 | 找出問題 | 筆電上有一份 `error.txt` |
 | 4 | 權限（講解） | 看懂 `ls -l` 的一行輸出 |
 | 5 | 修復與服務 | `~/.log/app.log` 最後出現 `INFO: started` |
 
-驗收三件事：`~/reports/error.txt` 存在；重新登入不用密碼；`tail ~/.log/app.log` 看到 `started`。
+驗收三件事：重新登入不用密碼；錯誤報告 `error.txt` 已經拉回筆電；`tail ~/.log/app.log` 看到 `started`。
 
 下面的 `帳號` 與 `IP` 換成講師發給你的值，例如 `lab07` 與 `192.168.10.50`。
+
+> [!TIP]
+> 登入後隨時打 `lab`，就能看到自己每一段完成了沒、還差什麼，見 [lab 指令](/commands/lab/)。
 
 ## 第 1 段：SSH 登入 {#part-1}
 
@@ -40,7 +43,34 @@ hostname
 
 文件：[ssh](/commands/ssh/)、[whoami](/commands/whoami/)、[hostname](/commands/hostname/)、[SSH 伺服器](/environment/sshd/#fingerprint)。
 
-## 第 2 段：找出問題 {#part-2}
+## 第 2 段：SSH 金鑰登入 {#part-2}
+
+在**筆電**產生金鑰並把公鑰傳上去（一路按 [[Enter]]）：
+
+```command
+ssh-keygen -t ed25519
+scp ~/.ssh/id_ed25519.pub 帳號@IP:~/
+```
+
+Windows PowerShell 的公鑰路徑是 `$env:USERPROFILE\.ssh\id_ed25519.pub`。
+
+在**伺服器**把公鑰加進 `authorized_keys`，並設定權限：
+
+`>>` 是把內容**接到檔案最後面**，原本的金鑰不會被蓋掉。第 3 段會再看它和 `>` 的差別。
+
+```command
+mkdir -p ~/.ssh
+cat ~/id_ed25519.pub >> ~/.ssh/authorized_keys
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+exit
+```
+
+再 `ssh 帳號@IP` 一次，應該不用輸入密碼。
+
+文件：[ssh-keygen](/commands/ssh-keygen/)、[scp](/commands/scp/)、[chmod](/commands/chmod/)、[SSH 伺服器的金鑰登入條件](/environment/sshd/#pubkey)。
+
+## 第 3 段：找出問題 {#part-3}
 
 ```command
 ls
@@ -50,7 +80,7 @@ pwd
 ls -lh
 ```
 
-`ls` 什麼都沒有，`ls -la` 才看到以 `.` 開頭的隱藏目錄 `.log` 與 `.config`。`app.log` 很大，不要 `cat`，改用 `less` 翻頁，或用 `grep` 直接過濾：
+`ls` 什麼都沒有，`ls -la` 才看到以 `.` 開頭的隱藏目錄 `.log` 與 `.config`（`.challange` 是課後闖關用的，先不管它）。`app.log` 很大，不要 `cat`，改用 `less` 翻頁，或用 `grep` 直接過濾：
 
 ```command
 less app.log
@@ -88,32 +118,15 @@ rm reports/error.bak
 
 結論：最後一筆 ERROR 寫著要把 `enable` 改成 `true`，設定在 `app/config.json`。留到第 5 段修。
 
-文件：[ls](/commands/ls/)、[cd](/commands/cd/)、[pwd](/commands/pwd/)、[less](/commands/less/)、[grep](/commands/grep/)、[| > >>](/commands/redirection/)、[tail](/commands/tail/)、[wc](/commands/wc/)、[touch](/commands/touch/)、[mkdir](/commands/mkdir/)、[mv](/commands/mv/)、[cp](/commands/cp/)、[rm](/commands/rm/)、[家目錄與預置檔案](/environment/home/)。
-
-## 第 3 段：SSH 金鑰登入 {#part-3}
-
-在**筆電**產生金鑰並把公鑰傳上去（一路按 [[Enter]]）：
+把報告拉回**筆電**（先 `exit`，或在筆電另開一個終端機）：
 
 ```command
-ssh-keygen -t ed25519
-scp ~/.ssh/id_ed25519.pub 帳號@IP:~/
+scp 帳號@IP:~/reports/error.txt .
 ```
 
-Windows PowerShell 的公鑰路徑是 `$env:USERPROFILE\.ssh\id_ed25519.pub`。
+第 2 段已經設好金鑰，這次不用輸入密碼。`.` 代表筆電上目前所在的目錄。
 
-在**伺服器**把公鑰加進 `authorized_keys`，並設定權限：
-
-```command
-mkdir -p ~/.ssh
-cat ~/id_ed25519.pub >> ~/.ssh/authorized_keys
-chmod 700 ~/.ssh
-chmod 600 ~/.ssh/authorized_keys
-exit
-```
-
-再 `ssh 帳號@IP` 一次，應該不用輸入密碼。
-
-文件：[ssh-keygen](/commands/ssh-keygen/)、[scp](/commands/scp/)、[chmod](/commands/chmod/)、[SSH 伺服器的金鑰登入條件](/environment/sshd/#pubkey)。
+文件：[ls](/commands/ls/)、[cd](/commands/cd/)、[pwd](/commands/pwd/)、[less](/commands/less/)、[grep](/commands/grep/)、[| > >>](/commands/redirection/)、[tail](/commands/tail/)、[wc](/commands/wc/)、[touch](/commands/touch/)、[mkdir](/commands/mkdir/)、[mv](/commands/mv/)、[cp](/commands/cp/)、[rm](/commands/rm/)、[scp](/commands/scp/#basics)、[家目錄與預置檔案](/environment/home/)。
 
 ## 第 4 段：權限 {#part-4}
 
@@ -171,6 +184,12 @@ ps -u $USER
 
 文件：[find](/commands/find/)、[nano](/commands/nano/)、[systemctl](/commands/systemctl/)、[lab-app 服務](/environment/lab-app/)、[sleep](/commands/sleep/)、[背景執行](/commands/jobs/)、[ps](/commands/ps/)、[kill](/commands/kill/)。
 
+## 課後：challange 闖關 {#challange}
+
+五段都完成後，講師會宣布開始闖關：解開加密檔拿到 flag，同時想辦法對付會吃掉 flag 的搗蛋鬼。會用到這堂課的權限、檔案操作、服務管理和 `scp`。
+
+規則與流程見 [challange 闖關](/guide/challange/)，卡住時打 `lab hint`。
+
 ## 卡住時 {#stuck}
 
 | 狀況 | 先看 |
@@ -180,3 +199,4 @@ ps -u $USER
 | 重新登入仍要密碼 | [SSH 伺服器：金鑰登入失敗](/environment/sshd/#pubkey) |
 | 改完 config 還是沒起來 | `tail ~/.log/app.log`，對照 [lab-app 錯誤訊息](/environment/lab-app/#errors) |
 | 改壞 `config.json` | `cp config.json.bak config.json` 重來 |
+| 不確定自己做完了沒 | 打 `lab`，見 [看懂進度](/commands/lab/#status) |

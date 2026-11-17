@@ -27,6 +27,15 @@ systemctl --user status lab-app
 
 每個帳號都有自己的一套服務，互不影響。少打 `--user` 會得到 `Unit lab-app.service not found`。
 
+### 你的服務 {#services}
+
+| 服務 | 什麼時候在跑 | 說明 |
+| --- | --- | --- |
+| `lab-app` | 開機就會啟動，設定錯誤時是 `failed` | 第 5 段要修好的服務，見 [lab-app](/environment/lab-app/) |
+| `evil-killer` | 講師宣布 challange 開始時才啟動 | 闖關裡的搗蛋鬼，見 [challange 闖關](/guide/challange/#eaten) |
+
+兩個服務都屬於你自己，所以 `systemctl --user` 就能管理，不需要 `sudo`。
+
 ## 進階 {#advanced}
 
 ### 服務的狀態 {#states}
@@ -46,6 +55,10 @@ systemctl --user status lab-app
 | `ExecStart=` | 啟動時執行什麼 |
 | `Restart=` | 結束後要不要自動重啟 |
 | `WantedBy=` | 什麼時候自動啟動 |
+
+### 停止和停用 {#stop-vs-disable}
+
+`stop` 是**現在**停下來；`disable` 只是**下次**不要自動啟動，正在跑的服務不會停。要兩個一起做用 `disable --now`。詳見 [systemctl](/commands/systemctl/#stop-vs-disable)。
 
 ### 你登入前服務就在了 {#linger}
 

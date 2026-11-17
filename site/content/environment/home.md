@@ -1,7 +1,7 @@
 ---
 title: 家目錄與預置檔案
 nav: 家目錄與預置檔案
-summary: ~/.log 與 ~/.config 裡有什麼
+summary: ~/.log、~/.config 與 ~/.challange 裡有什麼
 description: 每位學員家目錄裡預先放好的 log 與設定檔。
 ---
 
@@ -15,9 +15,12 @@ description: 每位學員家目錄裡預先放好的 log 與設定檔。
 │   ├── db.log
 │   ├── cron.log
 │   └── boot.log
-└── .config/
-    ├── app/config.json   ← lab-app 的設定檔，第 5 段要改
-    └── 其他 7 個目錄       ← 別的程式的設定，不要改錯
+├── .config/
+│   ├── app/config.json   ← lab-app 的設定檔，第 5 段要改
+│   └── 其他 7 個目錄       ← 別的程式的設定，不要改錯
+└── .challange/           ← 課後闖關用
+    ├── README.txt
+    └── decoder.sh
 ```
 
 | 檔案 | 用途 |
@@ -25,7 +28,7 @@ description: 每位學員家目錄裡預先放好的 log 與設定檔。
 | `~/.log/app.log` | lab-app 的 log，約 2000 行，最後一筆 ERROR 就是現在的問題 |
 | `~/.config/app/config.json` | lab-app 的設定，一開始是 `{"enable": false}` |
 
-`.log` 和 `.config` 以 `.` 開頭，是隱藏目錄，要用 `ls -a` 才看得到。
+`.log`、`.config`、`.challange` 都以 `.` 開頭，是隱藏目錄，要用 `ls -a` 才看得到。`.challange` 的用法見 [challange 闖關](/guide/challange/#files)。
 
 ## 進階 {#advanced}
 
@@ -56,7 +59,9 @@ description: 每位學員家目錄裡預先放好的 log 與設定檔。
 
 ### 一開始不存在的東西 {#absent}
 
-`~/reports`、`~/error.txt`、`~/.ssh` 都要你在課堂上自己建立。
+`~/reports`、`~/error.txt` 要你在課堂上自己建立。`~/.ssh` 和裡面的 `authorized_keys` 已經預先建好，但是空的，第 2 段要把自己的公鑰 `>>` 進去。
+
+闖關時才會出現的：`~/.challange/key.txt`（你自己放）、`flag.html`（解密器產生）、`evil.txt`，以及第一次答對 `lab flag` 或 `lab bonus` 時建立的 `~/.lab/`（存你提交的答案，不要刪）。
 
 ## 範例 {#examples}
 
@@ -67,7 +72,7 @@ grep -r ERROR ~/.log
 find ~/.config -name config.json
 ```
 
-1. 看到 `.log`、`.config`。
+1. 看到 `.log`、`.config`、`.challange`。
 2. 各個 log 的大小。
 3. 一次搜尋所有 log，只有 `app.log` 有 ERROR。
 4. 找到好幾個 `config.json`，靠路徑判斷哪一個是 `app` 的。

@@ -35,6 +35,16 @@ systemctl --user restart lab-app
 
 以上都要接在 `systemctl --user` 後面，例如 `systemctl --user is-active lab-app`。
 
+### stop 和 disable 的差別 {#stop-vs-disable}
+
+| 寫法 | 現在 | 下次登入或開機 |
+| --- | --- | --- |
+| `stop 服務` | **停下來** | 照原本設定，可能又會自動啟動 |
+| `disable 服務` | **還在跑** | 不會自動啟動 |
+| `disable --now 服務` | 停下來 | 不會自動啟動 |
+
+想讓一個正在跑的服務馬上停，要用 `stop`。只下 `disable` 之後看 `status`，會發現它還是 `active (running)`。
+
 ## 範例 {#examples}
 
 ```command
@@ -57,3 +67,9 @@ systemctl status ssh
 ```
 
 系統服務可以看，但沒有 root 不能改。
+
+```command
+systemctl --user list-units --type=service
+```
+
+不知道服務叫什麼名字時，先列出自己帳號底下所有的服務。闖關時會用到，見 [challange 闖關](/guide/challange/#eaten)。

@@ -9,12 +9,14 @@ Nov 16, 2026 · @lolLeo
 | 段 | 主題 | 時間（分） | 學員產出 |
 | --- | --- | --- | --- |
 | 1 | SSH 登入 | 10 | 說出自己的 whoami 與 hostname |
-| 2 | 找出問題 | 20 | `~/reports/error.txt` |
-| 3 | SSH 金鑰登入 | 15 | 免密碼登入成功 |
+| 2 | SSH 金鑰登入 | 15 | 免密碼登入成功 |
+| 3 | 找出問題 | 20 | `error.txt` 拉回筆電 |
 | 4 | 權限（只講不做） | 10 | 無 |
 | 5 | 修復與服務 | 20 | app.log 最後出現 started |
 
-驗收點有三個：`~/reports/error.txt` 存在；免密碼登入成功；`tail ~/.log/app.log` 看到 started。
+驗收點有三個：免密碼登入成功；`error.txt` 拉回筆電；`tail ~/.log/app.log` 看到 started。
+
+簡報只放三個目標頁：公鑰登入、把錯誤報告拉回筆電、lab-app 啟動。排查的思考方式（目的 → 觀察 → 執行 → 觀察；錯誤看 log、指令查 `--help` 或 Google、環境看 docs）由講師口述，不放簡報。
 
 時間最緊的是第 5 段，因為要先花 2 分鐘介紹 nano。需要時從第 4 段借時間。
 
@@ -34,29 +36,13 @@ Nov 16, 2026 · @lolLeo
 
 檢查點：每人能說出自己的 hostname。
 
-## 第 2 段：找出問題（20 分）
+## 第 2 段：SSH 金鑰登入（15 分）
 
-目標：從一堆 log 找出 app 沒跑的原因，存成 `~/reports/error.txt`。不在這一段修復。
-
-1. `ls` 看不到東西 → `ls -la` 找到 `.log/` 與 `.config/`。講解：`.` 開頭是隱藏檔。
-2. `cd .log`、`pwd` 確認位置，`ls -lh` 看大小。
-3. `cat app.log` 被洗版。講解：大檔不要直接 `cat`。
-4. `less app.log`：空白鍵往下翻，`b` 往回翻，`/ERROR` 搜尋、`n` 找下一個，`G` 跳到結尾，`q` 離開。
-5. `grep ERROR app.log` 列出所有錯誤。講解：`cat app.log | grep ERROR` 也能用，直接 `grep ERROR app.log` 少一步，不必糾正學員。
-6. `touch ~/error.txt` 建立空檔，再 `grep ERROR app.log >> ~/error.txt`。重跑一次，`cat ~/error.txt` 會發現內容重複（`>>` 是追加）。改用 `grep ERROR app.log > ~/error.txt` 覆蓋回一份（`>` 是覆蓋）。
-7. 管線：`grep ERROR app.log | tail -n 1` 只看最新一筆錯誤，`grep ERROR app.log | wc -l` 數錯誤筆數。講解：`|` 把前一個指令的輸出交給下一個。
-8. 整理：`cd ~`、`mkdir reports`、`mv error.txt reports/`，再 `cp reports/error.txt reports/error.bak`，最後 `rm reports/error.bak`。提醒：`rm` 沒有垃圾桶。
-9. 結論：最後一筆 ERROR 說要把 `enable` 改成 `true`，設定在 `app/config.json`，留到第 5 段修。
-
-檢查點：`~/reports/error.txt` 存在，且內容包含最後那筆 ERROR。
-
-## 第 3 段：SSH 金鑰登入（15 分）
-
-目標：學員完成公鑰登入，重新登入不再輸入密碼。這一段 `scp` 只用來傳公鑰。
+目標：學員完成公鑰登入，重新登入不再輸入密碼。`scp` 在這裡第一次出現，用來上傳公鑰；第 3 段會再用它把報告下載回筆電。
 
 1. 筆電執行 `ssh-keygen -t ed25519`，一路 Enter。講解：會產生私鑰與公鑰 `.pub`，私鑰絕不外傳。
 2. 筆電執行 `scp ~/.ssh/id_ed25519.pub 帳號@IP:~/`，把公鑰傳到伺服器家目錄。
-3. 伺服器執行 `mkdir -p ~/.ssh`，再 `cat ~/id_ed25519.pub >> ~/.ssh/authorized_keys`。講解：這裡用 `>>` 追加，用 `>` 會把既有的金鑰蓋掉。
+3. 伺服器執行 `mkdir -p ~/.ssh`，再 `cat ~/id_ed25519.pub >> ~/.ssh/authorized_keys`。講解：`>>` 是接到檔案最後面，真實伺服器上 `authorized_keys` 通常已經有別人的金鑰，用 `>` 會全部蓋掉。這裡只講到這樣，第 3 段再讓他們親手體驗 `>` 和 `>>` 的差別。
 4. 伺服器執行 `chmod 700 ~/.ssh` 與 `chmod 600 ~/.ssh/authorized_keys`。講解：第 4 段會再回來講為什麼私密檔要 600。
 5. `exit` 登出，再 `ssh 帳號@IP`，確認不用輸入密碼。
 
@@ -69,6 +55,23 @@ Nov 16, 2026 · @lolLeo
 
 檢查點：免密碼登入成功。
 
+## 第 3 段：找出問題（20 分）
+
+目標：從一堆 log 找出 app 沒跑的原因，存成 `~/reports/error.txt`，再拉回筆電。不在這一段修復。
+
+1. `ls` 看不到東西 → `ls -la` 找到 `.log/` 與 `.config/`。講解：`.` 開頭是隱藏檔。
+2. `cd .log`、`pwd` 確認位置，`ls -lh` 看大小。
+3. `cat app.log` 被洗版。講解：大檔不要直接 `cat`。
+4. `less app.log`：空白鍵往下翻，`b` 往回翻，`/ERROR` 搜尋、`n` 找下一個，`G` 跳到結尾，`q` 離開。
+5. `grep ERROR app.log` 列出所有錯誤。講解：`cat app.log | grep ERROR` 也能用，直接 `grep ERROR app.log` 少一步，不必糾正學員。
+6. `touch ~/error.txt` 建立空檔，再 `grep ERROR app.log >> ~/error.txt`。重跑一次，`cat ~/error.txt` 會發現內容重複（`>>` 是追加，回扣第 2 段放公鑰時用的就是它）。改用 `grep ERROR app.log > ~/error.txt` 覆蓋回一份（`>` 是覆蓋）。
+7. 管線：`grep ERROR app.log | tail -n 1` 只看最新一筆錯誤，`grep ERROR app.log | wc -l` 數錯誤筆數。講解：`|` 把前一個指令的輸出交給下一個。
+8. 整理：`cd ~`、`mkdir reports`、`mv error.txt reports/`，再 `cp reports/error.txt reports/error.bak`，最後 `rm reports/error.bak`。提醒：`rm` 沒有垃圾桶。
+9. 結論：最後一筆 ERROR 說要把 `enable` 改成 `true`，設定在 `app/config.json`，留到第 5 段修。
+10. 把報告拉回筆電：先 `exit`（或筆電另開終端機），執行 `scp 帳號@IP:~/reports/error.txt .`。講解：方向和第 2 段相反，「來源 → 目的地」；這次不用密碼，證明金鑰登入有效。
+
+檢查點：筆電上有 `error.txt`，且內容包含最後那筆 ERROR。
+
 ## 第 4 段：權限講解（10 分，只講不做）
 
 目標：學員看得懂 `ls -l` 的一行輸出，知道自己能做什麼、不能做什麼。
@@ -77,7 +80,7 @@ Nov 16, 2026 · @lolLeo
 2. `ls -l` 怎麼看：用自己的 `ls -l ~/.config/app/config.json` 拆解五個部分：檔案類型、擁有者權限、群組權限、其他人權限、擁有者與群組。
 3. 對比：`ls -l /etc/shadow`，再 `cat /etc/shadow` 被拒絕（Permission denied）。
 4. 示範一次 `chmod +x`：`touch demo.sh`、`ls -l demo.sh`、`chmod +x demo.sh`、再 `ls -l demo.sh`。
-5. 回到第 3 段：為什麼 `~/.ssh` 要 700、`authorized_keys` 要 600。SSH 對私密檔案的權限很嚴格。
+5. 回到第 2 段：為什麼 `~/.ssh` 要 700、`authorized_keys` 要 600。SSH 對私密檔案的權限很嚴格。
 
 | 權限值 | 符號 | 常見用途 |
 | --- | --- | --- |
@@ -116,14 +119,14 @@ Nov 16, 2026 · @lolLeo
 
 | 類別 | 指令 | 段 |
 | --- | --- | --- |
-| 登入與身分 | `ssh`、`whoami`、`hostname`、`exit`、`id` | 1、3、4 |
-| 瀏覽 | `pwd`、`ls`（`-a` `-l` `-h`）、`cd`、`find` | 2、5 |
-| 讀檔 | `cat`、`less`、`tail`、`wc -l` | 2、5 |
+| 登入與身分 | `ssh`、`whoami`、`hostname`、`exit`、`id` | 1、2、3、4 |
+| 瀏覽 | `pwd`、`ls`（`-a` `-l` `-h`）、`cd`、`find` | 3、5 |
+| 讀檔 | `cat`、`less`、`tail`、`wc -l` | 2、3、5 |
 | 搜尋與管線 | `grep`、`\|`、`>`、`>>` | 2、3、5 |
 | 檔案管理 | `touch`、`mkdir`、`cp`、`mv`、`rm` | 2、3、5 |
 | 編輯 | `nano` | 5 |
-| 傳輸與金鑰 | `ssh-keygen`、`scp` | 3 |
-| 權限 | `ls -l`、`chmod` | 3、4 |
+| 傳輸與金鑰 | `ssh-keygen`、`scp` | 2、3 |
+| 權限 | `ls -l`、`chmod` | 2、4 |
 | 程序與服務 | `ps -u $USER`、`kill`、`sleep &`、`systemctl --user status`、`restart`、`stop` | 5 |
 
 學到的觀念：
@@ -147,12 +150,12 @@ Nov 16, 2026 · @lolLeo
 | `systemctl --user` 出現 `Failed to connect to bus` | 伺服器缺 `dbus-user-session` 或 `libpam-systemd`，或不是用一般 SSH 登入 |
 | 重新登入仍要密碼 | 檢查 `authorized_keys` 拼字、是否用了 `>`、`~/.ssh` 與檔案權限 |
 | 改壞 `config.json` | `cp config.json.bak config.json` 重來 |
-| `>` 與 `>>` 搞混 | 第 2 段就是要讓他們搞混一次，再一起看結果 |
+| `>` 與 `>>` 搞混 | 第 3 段就是要讓他們搞混一次，再一起看結果 |
 | 學員習慣先 `cat` 再接 `grep` | 兩種都行，順口提醒直接 `grep` 少一步即可 |
 
 講師備註：
 
 - 時間最緊的是第 5 段，第 4 段只講不做，可以縮短來讓出時間。
-- 第 3 段之前先確認每位學員的筆電有 `ssh`、`scp` 與 `ssh-keygen`。Windows 10 以上通常內建，老版本要先安裝 OpenSSH 用戶端。
+- 第 2 段之前先確認每位學員的筆電有 `ssh`、`scp` 與 `ssh-keygen`。Windows 10 以上通常內建，老版本要先安裝 OpenSSH 用戶端。
 - 中途卡住的人，先問他們 `tail ~/.log/app.log` 看到什麼，log 就是答案。
 - 啟動與還原腳本另案處理，課前要確認每位學員的時間戳、服務狀態都回到初始值。

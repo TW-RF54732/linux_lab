@@ -75,6 +75,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 4. 寫 `/etc/systemd/system/user-.slice.d/lab.conf`：`TasksMax=200`、`MemoryMax=512M`。
 5. 寫 `/etc/ssh/sshd_config.d/00-lab.conf`，用 `sshd -t` 與 `sshd -T` 確認有效設定後才重啟 sshd。
 6. 建立 `labNN` 帳號：`/bin/bash`、私人群組 + `labusers`、不在 `sudo`/`adm`、家目錄 750、隨機密碼（不強制首次改密碼）。
+   預建 `~/.ssh`（700）與空的 `~/.ssh/authorized_keys`（600）；已存在的不清空，只修正擁有者與權限。
 7. 對每個新帳號建立初始狀態：
    - `loginctl enable-linger`
    - 用 `lab-seed` 產生 `~/.log/*.log` 與 `~/.config/*`（app.log 先不含最後一筆 ERROR）
@@ -106,6 +107,7 @@ CTID=240 IP=192.168.10.50/24 GW=192.168.10.1 ./proxmox/create-ct.sh
 | `lab` 指令 | 只有 challange | 學員端與計分板都加上教學第 1、2、3、5 段的檢查點 | 講師在 root 一眼看出誰落後 |
 | sshd | — | 加 `ExposeAuthInfo yes`、`Subsystem sftp internal-sftp -l INFO` | 學員端判斷這次是否用金鑰登入；計分板從 sftp 紀錄判斷 error.txt 有沒有被拉回筆電。舊版 OpenSSH 不接受重複的 `Subsystem` 時 setup 會自動拿掉這行 |
 | evil-killer 排除 | `~/.lab/`、`~/.bash_history` | 只排除家目錄頂層這兩個路徑 | 避免學員把 flag 藏在任意名為 `.lab` 的子目錄 |
+| `~/.ssh` | 不預建，學員第 2 段自己 `mkdir -p` | setup 預建 `~/.ssh`（700）與空的 `authorized_keys`（600） | 學員只要把公鑰 `>>` 進去，不會卡在權限；`mkdir -p` 照樣不會出錯。計分板把空的 `authorized_keys` 視為還沒放公鑰 |
 
 app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決的舊 ERROR（每筆後面有恢復訊息），最後一筆是 `app is disabled`。同一個 `LAB_SEED` 產生的內容完全相同，只有時間戳跟著產生時間平移。
 
@@ -136,7 +138,7 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 - `--fork-test`：在測試帳號開超過 `TasksMax` 個程序，確認被擋下、另一個帳號不受影響。
 - 預設也會檢查 challange 初始狀態：`/lab/key.txt`、`~/.challange` 只有 `README.txt` 與 `decoder.sh`（444）、家目錄沒有 flag 標記、`./decoder.sh` 是 Permission denied、evil-killer 沒在跑、答案檔權限。
 - `--challange`：完整跑一次闖關（`lab --start`、三種放密鑰方式、被吃、evil.txt 恢復、`/tmp` 規則、`disable` 沒用、`stop`、提交 flag/bonus、`lab --all` 同步），最後 `lab --reset` 還原。**結尾會跑一次 `lab --stop`（所有學員）**，請在課前執行。
-- `--progress`：用臨時金鑰 `ssh` 與 `sftp` 到測試帳號，確認計分板的第 1、2、3 段偵測，最後刪掉 `~/.ssh`、`~/report`。之後計分板會一直顯示測試帳號已完成，開課前 `setup.sh --reseed` 重設基準時間。
+- `--progress`：用臨時金鑰 `ssh` 與 `sftp` 到測試帳號，確認計分板的第 1、2、3 段偵測，最後把 `authorized_keys` 清回空檔、刪掉 `~/report`。之後計分板會一直顯示測試帳號已完成，開課前 `setup.sh --reseed` 重設基準時間。
 - `--user lab05`：改用別的帳號（建議另外留一個測試帳號）。
 
 需要從**學員網段的外部電腦**手動確認的項目：
@@ -185,4 +187,4 @@ app.log 內容：約 1970 行、時間跨 3 天到開課當下，7 筆已解決�
 /root/linux_lab/setup.sh --reseed
 ```
 
-注意 `--reseed` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**刪掉學員上一堂課留下的 `~/.ssh`、`~/report`（或 `~/reports`）、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。
+注意 `--reseed` 只重新產生 `~/.log`、`~/.config`、服務狀態與 `~/.challange`（含 `~/.lab`），**不會**清空學員上一堂課放進 `~/.ssh/authorized_keys` 的公鑰（`verify.sh` 會提醒），也不會刪掉 `~/report`（或 `~/reports`）、`~/error.txt` 等檔案；完整還原屬於另案的還原腳本。
